@@ -219,7 +219,7 @@ function renderFileList(folders, documents) {
     folders.forEach(folder => {
         html += `
             <tr class="file-row folder" data-id="${folder.id}" data-type="folder">
-                <td class="col-checkbox admin-only"><input type="checkbox" disabled></td>
+                <td class="col-checkbox admin-only"><input type="checkbox" class="folder-checkbox" value="${folder.id}" onchange="toggleFolderSelect(${folder.id})"></td>
                 <td class="col-icon">📁</td>
                 <td class="file-name" onclick="navigateToFolder(${folder.id}, '${escapeHtml(folder.name)}')">
                     ${escapeHtml(folder.name)}
@@ -231,6 +231,7 @@ function renderFileList(folders, documents) {
                 <td class="col-time">${formatDate(folder.updated_at)}</td>
                 <td class="col-actions admin-only">
                     <button class="btn-action btn-edit" onclick="showRenameFolderModal(${folder.id}, '${escapeHtml(folder.name)}')" title="重命名">✏️</button>
+                    <button class="btn-action btn-move" onclick="showPermissionModal('folder', ${folder.id}, '${escapeHtml(folder.name)}')" title="权限">🔐</button>
                     <button class="btn-action btn-delete" onclick="deleteFolder(${folder.id})" title="删除">🗑️</button>
                 </td>
             </tr>
