@@ -1,4 +1,5 @@
 /**
+var allUsersData = [];
  * 安全文档共享平台 - 前端应用
  */
 
@@ -959,7 +960,8 @@ async function loadUsers() {
         const data = await response.json();
         
         if (response.ok) {
-            renderUsers(data.users);
+            allUsersData = data.users || [];
+            renderUsers(allUsersData);
         }
     } catch (error) {
         console.error('加载用户失败:', error);
