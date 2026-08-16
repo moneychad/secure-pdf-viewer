@@ -7,6 +7,9 @@ showPage = function(pageName) {
         case 'groups':
             if (typeof loadGroups === 'function') loadGroups();
             break;
+        case 'audit-logs':
+            if (typeof loadAuditLogs === 'function') loadAuditLogs();
+            break;
         case 'permissions':
             if (typeof loadPermissionTargets === 'function') loadPermissionTargets();
             break;

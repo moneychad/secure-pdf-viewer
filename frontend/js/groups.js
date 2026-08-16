@@ -10,6 +10,7 @@ let allGroups = [];
 async function loadGroups() {
     try {
         const response = await fetch(API_BASE + '/groups', {
+            credentials: 'include'
         });
         
         const data = await response.json();
