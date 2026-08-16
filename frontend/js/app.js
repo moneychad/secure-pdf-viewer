@@ -670,17 +670,35 @@ async function renderPage(pageNum) {
     }
     
     const page = await pdfDoc.getPage(pageNum);
-    const scale = 1.5;
+    
+    // 获取容器宽度，自适应缩放
+    const container = document.querySelector('.pdf-viewer-wrapper');
+    const containerWidth = container ? container.clientWidth - 40 : 800;  // 减去边距
+    
+    // 获取原始页面尺寸
+    const originalViewport = page.getViewport({ scale: 1 });
+    
+    // 计算自适应缩放比例（限制在 0.5 到 2.0 之间）
+    let scale = Math.min(containerWidth / originalViewport.width, 2.0);
+    scale = Math.max(scale, 0.5);
+    
     const viewport = page.getViewport({ scale });
     
     const canvas = document.getElementById('pdf-canvas');
     const ctx = canvas.getContext('2d');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    
+    // 高清显示
+    const pixelRatio = window.devicePixelRatio || 1;
+    canvas.width = viewport.width * pixelRatio;
+    canvas.height = viewport.height * pixelRatio;
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+    
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     
     await page.render({ canvasContext: ctx, viewport }).promise;
     
-    addWatermark(ctx, canvas.width, canvas.height);
+    addWatermark(ctx, viewport.width, viewport.height);
     
     document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
     currentPage = pageNum;

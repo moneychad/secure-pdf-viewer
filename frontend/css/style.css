@@ -707,3 +707,30 @@ tr:hover {
     text-align: center;
     min-height: 24px;
 }
+
+/* PDF 查看器优化 */
+.pdf-viewer-wrapper {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    overflow: auto;
+    max-height: 75vh;
+    padding: 20px;
+    background: #f0f0f0;
+    border-radius: 5px;
+}
+
+#pdf-canvas {
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    max-width: 100%;
+    height: auto;
+}
+
+.viewer-container {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-top: 15px;
+}
