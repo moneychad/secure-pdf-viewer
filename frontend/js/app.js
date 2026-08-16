@@ -1688,33 +1688,60 @@ function saveBatchPermissions() {
 
 // ==================== 文件路径弹窗 ====================
 
+
+// ==================== 文件路径弹窗 ====================
+
 function showPathModal(filePath) {
-    // 创建弹窗
     var modal = document.getElementById('path-modal');
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'path-modal';
         modal.className = 'modal';
-        modal.innerHTML = '<div class="modal-content" style="min-width: 500px;">' +
-            '<h3>文件完整路径</h3>' +
-            '<div class="path-display">' +
-                '<input type="text" id="path-input" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace;">' +
-            '</div>' +
-            '<div class="modal-actions">' +
-                '<button class="btn-secondary" onclick="closeModal(\"path-modal\")">关闭</button>' +
-                '<button class="btn-primary" onclick="copyPath()">📋 复制路径</button>' +
-            '</div>' +
-        '</div>';
+        var content = document.createElement('div');
+        content.className = 'modal-content';
+        content.style.minWidth = '500px';
+        
+        var title = document.createElement('h3');
+        title.textContent = '文件完整路径';
+        content.appendChild(title);
+        
+        var pathDisplay = document.createElement('div');
+        pathDisplay.className = 'path-display';
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'path-input';
+        input.readOnly = true;
+        input.style.cssText = 'width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;font-family:monospace;';
+        pathDisplay.appendChild(input);
+        content.appendChild(pathDisplay);
+        
+        var actions = document.createElement('div');
+        actions.className = 'modal-actions';
+        
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'btn-secondary';
+        closeBtn.textContent = '关闭';
+        closeBtn.addEventListener('click', function() {
+            closeModal('path-modal');
+        });
+        actions.appendChild(closeBtn);
+        
+        var copyBtn = document.createElement('button');
+        copyBtn.className = 'btn-primary';
+        copyBtn.textContent = '📋 复制路径';
+        copyBtn.addEventListener('click', function() {
+            var pathInput = document.getElementById('path-input');
+            pathInput.select();
+            document.execCommand('copy');
+            alert('路径已复制到剪贴板');
+        });
+        actions.appendChild(copyBtn);
+        
+        content.appendChild(actions);
+        modal.appendChild(content);
         document.body.appendChild(modal);
     }
     
     document.getElementById('path-input').value = filePath;
     modal.classList.remove('hidden');
-}
-
-function copyPath() {
-    var pathInput = document.getElementById('path-input');
-    pathInput.select();
-    document.execCommand('copy');
-    alert('路径已复制到剪贴板');
 }
