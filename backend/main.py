@@ -349,6 +349,34 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_file_path(conn, document_id):
+    """获取文件的完整路径"""
+    c = conn.cursor()
+    c.execute("SELECT folder_id, original_name FROM documents WHERE id = ?", (document_id,))
+    doc = c.fetchone()
+    if not doc:
+        return ""
+    
+    folder_id = doc["folder_id"]
+    original_name = doc["original_name"]
+    
+    if not folder_id:
+        return "/" + original_name
+    
+    # 递归获取目录路径
+    path_parts = []
+    current_folder_id = folder_id
+    while current_folder_id:
+        c.execute("SELECT name, parent_id FROM folders WHERE id = ?", (current_folder_id,))
+        folder = c.fetchone()
+        if folder:
+            path_parts.append(folder["name"])
+            current_folder_id = folder["parent_id"]
+        else:
+            break
+    
+    path_parts.reverse()
+    return "/" + "/".join(path_parts) + "/" + original_name
 def check_folder_permission(user_id: int, folder_id: int, db, depth: int = 0) -> bool:
     """检查用户是否有目录的读取权限（包括继承）"""
     # 防止无限递归
