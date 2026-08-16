@@ -9,9 +9,9 @@ import hashlib
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -59,15 +59,30 @@ def init_db():
         last_login TIMESTAMP
     )''')
     
+    # 目录表
+    c.execute('''CREATE TABLE IF NOT EXISTS folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        parent_id INTEGER DEFAULT NULL,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT 1,
+        FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE
+    )''')
+    
     # 文档表
     c.execute('''CREATE TABLE IF NOT EXISTS documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filename TEXT NOT NULL,
         original_name TEXT NOT NULL,
         file_size INTEGER,
+        folder_id INTEGER DEFAULT NULL,
         uploaded_by TEXT,
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT 1,
+        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
     )''')
     
     # 访问日志表
@@ -106,6 +121,9 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
               (ADMIN_USERNAME, admin_hash, "admin", 1))
     
+    # 创建默认根目录
+    c.execute("INSERT OR IGNORE INTO folders (id, name, parent_id, created_by) VALUES (1, '根目录', NULL, 'system')")
+    
     conn.commit()
     conn.close()
 
@@ -130,6 +148,23 @@ class UserUpdate(BaseModel):
 class ChangePassword(BaseModel):
     old_password: str
     new_password: str
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_id: Optional[int] = 1
+
+class FolderUpdate(BaseModel):
+    name: str
+
+class DocumentMove(BaseModel):
+    folder_id: int
+
+class BatchDelete(BaseModel):
+    document_ids: List[int]
+
+class BatchMove(BaseModel):
+    document_ids: List[int]
+    folder_id: int
 
 class DeviceFingerprint(BaseModel):
     fingerprint_hash: str
@@ -171,7 +206,8 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# API 路由
+# ==================== 认证 API ====================
+
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
     conn = get_db()
@@ -191,7 +227,6 @@ async def login(user: UserLogin, request: Request):
         raise HTTPException(status_code=403, detail="账号已被停用，请联系管理员")
     
     # 更新最后登录时间
-    ip_address = request.client.host
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
     conn.commit()
     conn.close()
@@ -225,18 +260,213 @@ async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
         conn.close()
         raise HTTPException(status_code=400, detail="用户名已存在")
 
-@app.get("/api/documents")
-async def list_documents(token_data: dict = Depends(verify_token)):
+@app.post("/api/change-password")
+async def change_password(
+    passwords: ChangePassword,
+    token_data: dict = Depends(verify_token)
+):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, filename, original_name, file_size, uploaded_by, uploaded_at FROM documents WHERE is_active = 1 ORDER BY uploaded_at DESC")
+    
+    # 验证旧密码
+    old_hash = hash_password(passwords.old_password)
+    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
+              (token_data["username"], old_hash))
+    
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="旧密码错误")
+    
+    # 更新密码
+    new_hash = hash_password(passwords.new_password)
+    c.execute("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+              (new_hash, token_data["username"]))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "密码修改成功"}
+
+# ==================== 目录 API ====================
+
+@app.get("/api/folders")
+async def list_folders(
+    parent_id: Optional[int] = None,
+    token_data: dict = Depends(verify_token)
+):
+    conn = get_db()
+    c = conn.cursor()
+    
+    if parent_id is None:
+        c.execute("""SELECT f.*, u.username as creator_name,
+                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
+                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
+                    FROM folders f 
+                    LEFT JOIN users u ON f.created_by = u.username
+                    WHERE f.parent_id = 1 AND f.is_active = 1 
+                    ORDER BY f.name""")
+    else:
+        c.execute("""SELECT f.*, u.username as creator_name,
+                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
+                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
+                    FROM folders f 
+                    LEFT JOIN users u ON f.created_by = u.username
+                    WHERE f.parent_id = ? AND f.is_active = 1 
+                    ORDER BY f.name""", (parent_id,))
+    
+    folders = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
+    return {"folders": folders}
+
+@app.post("/api/folders")
+async def create_folder(
+    folder: FolderCreate,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以创建目录")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查父目录是否存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder.parent_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="父目录不存在")
+    
+    # 检查同级目录名是否重复
+    c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND is_active = 1",
+              (folder.name, folder.parent_id))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="同级目录下已存在同名目录")
+    
+    c.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)",
+              (folder.name, folder.parent_id, token_data["username"]))
+    folder_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"folder_id": folder_id, "message": "目录创建成功"}
+
+@app.put("/api/folders/{folder_id}")
+async def rename_folder(
+    folder_id: int,
+    folder_update: FolderUpdate,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以重命名目录")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查目录是否存在
+    c.execute("SELECT id, parent_id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    folder = c.fetchone()
+    if not folder:
+        conn.close()
+        raise HTTPException(status_code=404, detail="目录不存在")
+    
+    # 不能重命名根目录
+    if folder_id == 1:
+        conn.close()
+        raise HTTPException(status_code=400, detail="不能重命名根目录")
+    
+    # 检查同级目录名是否重复
+    c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND id != ? AND is_active = 1",
+              (folder_update.name, folder["parent_id"], folder_id))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="同级目录下已存在同名目录")
+    
+    c.execute("UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+              (folder_update.name, folder_id))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "目录重命名成功"}
+
+@app.delete("/api/folders/{folder_id}")
+async def delete_folder(
+    folder_id: int,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以删除目录")
+    
+    if folder_id == 1:
+        raise HTTPException(status_code=400, detail="不能删除根目录")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查目录是否存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目录不存在")
+    
+    # 将目录下的文档移到根目录
+    c.execute("UPDATE documents SET folder_id = 1 WHERE folder_id = ?", (folder_id,))
+    
+    # 软删除目录
+    c.execute("UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (folder_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "目录删除成功"}
+
+# ==================== 文档 API ====================
+
+@app.get("/api/documents")
+async def list_documents(
+    folder_id: Optional[int] = None,
+    search: Optional[str] = None,
+    sort_by: Optional[str] = "uploaded_at",
+    sort_order: Optional[str] = "desc",
+    token_data: dict = Depends(verify_token)
+):
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 构建查询
+    query = """SELECT d.*, u.username as uploader_name 
+               FROM documents d 
+               LEFT JOIN users u ON d.uploaded_by = u.username
+               WHERE d.is_active = 1"""
+    params = []
+    
+    if folder_id is not None:
+        query += " AND d.folder_id = ?"
+        params.append(folder_id)
+    
+    if search:
+        query += " AND d.original_name LIKE ?"
+        params.append(f"%{search}%")
+    
+    # 排序
+    valid_sort_fields = ["original_name", "file_size", "uploaded_at", "updated_at"]
+    if sort_by in valid_sort_fields:
+        query += f" ORDER BY d.{sort_by}"
+        if sort_order.lower() == "asc":
+            query += " ASC"
+        else:
+            query += " DESC"
+    else:
+        query += " ORDER BY d.uploaded_at DESC"
+    
+    c.execute(query, params)
     documents = [dict(row) for row in c.fetchall()]
     conn.close()
+    
     return {"documents": documents}
 
 @app.post("/api/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
+    folder_id: int = Query(default=1),
     token_data: dict = Depends(verify_token)
 ):
     if token_data.get("role") != "admin":
@@ -244,6 +474,14 @@ async def upload_document(
     
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="只支持 PDF 文件")
+    
+    # 检查目录是否存在
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目标目录不存在")
     
     # 生成唯一文件名
     file_hash = hashlib.md5(f"{file.filename}{datetime.now()}".encode()).hexdigest()
@@ -256,10 +494,8 @@ async def upload_document(
         f.write(content)
     
     # 记录到数据库
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("INSERT INTO documents (filename, original_name, file_size, uploaded_by) VALUES (?, ?, ?, ?)",
-              (filename, file.filename, len(content), token_data["username"]))
+    c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
+              (filename, file.filename, len(content), folder_id, token_data["username"]))
     doc_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -294,6 +530,118 @@ async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
         media_type="application/pdf",
         filename=doc["original_name"]
     )
+
+@app.delete("/api/documents/{doc_id}")
+async def delete_document(
+    doc_id: int,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以删除文档")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查文档是否存在
+    c.execute("SELECT id, filename FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    doc = c.fetchone()
+    if not doc:
+        conn.close()
+        raise HTTPException(status_code=404, detail="文档不存在")
+    
+    # 软删除文档
+    c.execute("UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (doc_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "文档删除成功"}
+
+@app.post("/api/documents/batch-delete")
+async def batch_delete_documents(
+    batch: BatchDelete,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以删除文档")
+    
+    if not batch.document_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的文档")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 批量软删除
+    placeholders = ','.join(['?' for _ in batch.document_ids])
+    c.execute(f"UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+              batch.document_ids)
+    deleted_count = c.rowcount
+    conn.commit()
+    conn.close()
+    
+    return {"message": f"成功删除 {deleted_count} 个文档"}
+
+@app.post("/api/documents/batch-move")
+async def batch_move_documents(
+    batch: BatchMove,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以移动文档")
+    
+    if not batch.document_ids:
+        raise HTTPException(status_code=400, detail="请选择要移动的文档")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查目标目录是否存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (batch.folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+    
+    # 批量移动
+    placeholders = ','.join(['?' for _ in batch.document_ids])
+    c.execute(f"UPDATE documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+              [batch.folder_id] + batch.document_ids)
+    moved_count = c.rowcount
+    conn.commit()
+    conn.close()
+    
+    return {"message": f"成功移动 {moved_count} 个文档"}
+
+@app.put("/api/documents/{doc_id}/move")
+async def move_document(
+    doc_id: int,
+    move: DocumentMove,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以移动文档")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 检查文档是否存在
+    c.execute("SELECT id FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="文档不存在")
+    
+    # 检查目标目录是否存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (move.folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+    
+    c.execute("UPDATE documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+              (move.folder_id, doc_id))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "文档移动成功"}
+
+# ==================== 其他 API ====================
 
 @app.post("/api/fingerprint")
 async def register_fingerprint(
@@ -343,31 +691,7 @@ async def log_access(
     
     return {"message": "日志已记录"}
 
-@app.post("/api/change-password")
-async def change_password(
-    passwords: ChangePassword,
-    token_data: dict = Depends(verify_token)
-):
-    conn = get_db()
-    c = conn.cursor()
-    
-    # 验证旧密码
-    old_hash = hash_password(passwords.old_password)
-    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
-              (token_data["username"], old_hash))
-    
-    if not c.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="旧密码错误")
-    
-    # 更新密码
-    new_hash = hash_password(passwords.new_password)
-    c.execute("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
-              (new_hash, token_data["username"]))
-    conn.commit()
-    conn.close()
-    
-    return {"message": "密码修改成功"}
+# ==================== 管理员 API ====================
 
 @app.get("/api/admin/logs")
 async def get_access_logs(

@@ -11,6 +11,9 @@ let totalPages = 0;
 let pdfDoc = null;
 let pageStartTime = null;
 let currentFingerprintHash = null;
+let currentFolderId = 1;  // 当前目录ID
+let folderPath = [];  // 目录路径
+let selectedDocuments = new Set();  // 选中的文档
 
 // API 基础地址
 const API_BASE = '/api';
@@ -18,122 +21,73 @@ const API_BASE = '/api';
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        // 收集设备指纹
         const fingerprinter = new DeviceFingerprint();
         const fingerprintData = await fingerprinter.collect();
         currentFingerprintHash = fingerprintData.fingerprint_hash;
-        console.log('设备指纹已收集:', currentFingerprintHash.substring(0, 16) + '...');
     } catch (e) {
-        console.error('指纹收集失败:', e);
         currentFingerprintHash = 'unknown-' + Date.now();
     }
     
-    // 检查登录状态
     checkLoginStatus();
-    
-    // 绑定事件
     bindEvents();
 });
 
 // 事件绑定
 function bindEvents() {
-    // 登录表单
     const loginForm = document.getElementById('login-form');
-    if (loginForm) {
-        loginForm.addEventListener('submit', handleLogin);
-    }
+    if (loginForm) loginForm.addEventListener('submit', handleLogin);
     
-    // 退出按钮
     const logoutBtn = document.getElementById('logout-btn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
+    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
     
-    // 导航菜单
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const page = item.dataset.page;
-            if (page) {
-                showPage(page);
-            }
+            if (page) showPage(page);
         });
     });
     
-    // PDF 翻页
     const prevPage = document.getElementById('prev-page');
     const nextPage = document.getElementById('next-page');
     if (prevPage) prevPage.addEventListener('click', () => {
-        if (currentPage > 1) {
-            currentPage--;
-            renderPage(currentPage);
-        }
+        if (currentPage > 1) { currentPage--; renderPage(currentPage); }
     });
     if (nextPage) nextPage.addEventListener('click', () => {
-        if (currentPage < totalPages) {
-            currentPage++;
-            renderPage(currentPage);
-        }
+        if (currentPage < totalPages) { currentPage++; renderPage(currentPage); }
     });
     
-    // 返回列表
     const backBtn = document.getElementById('back-to-list');
-    if (backBtn) {
-        backBtn.addEventListener('click', () => {
-            showPage('documents');
-        });
-    }
+    if (backBtn) backBtn.addEventListener('click', () => showPage('documents'));
     
-    // 文件上传
     const fileInput = document.getElementById('file-input');
-    if (fileInput) {
-        fileInput.addEventListener('change', handleFileSelect);
-    }
+    if (fileInput) fileInput.addEventListener('change', handleFileSelect);
     
-    // 拖拽上传
     const dropZone = document.getElementById('drop-zone');
     if (dropZone) {
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#e74c3c';
-        });
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.style.borderColor = '#3498db';
-        });
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#e74c3c'; });
+        dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#3498db'; });
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.style.borderColor = '#3498db';
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                uploadFile(files[0]);
-            }
+            if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
         });
     }
     
-    // 创建用户表单
     const createUserForm = document.getElementById('create-user-form');
-    if (createUserForm) {
-        createUserForm.addEventListener('submit', handleCreateUser);
-    }
+    if (createUserForm) createUserForm.addEventListener('submit', handleCreateUser);
     
-    // 修改密码表单
     const changePasswordForm = document.getElementById('change-password-form');
-    if (changePasswordForm) {
-        changePasswordForm.addEventListener('submit', handleChangePassword);
-    }
+    if (changePasswordForm) changePasswordForm.addEventListener('submit', handleChangePassword);
 }
 
 // 登录处理
 async function handleLogin(e) {
     e.preventDefault();
-    
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
     
-    if (!username || !password) {
-        showError('login-error', '请输入用户名和密码');
-        return;
-    }
+    if (!username || !password) { showError('login-error', '请输入用户名和密码'); return; }
     
     try {
         const response = await fetch(`${API_BASE}/login`, {
@@ -147,15 +101,9 @@ async function handleLogin(e) {
         if (response.ok) {
             authToken = data.token;
             currentUser = data.user;
-            
-            // 保存到本地存储
             localStorage.setItem('token', authToken);
             localStorage.setItem('user', JSON.stringify(currentUser));
-            
-            // 注册设备指纹（后台执行，不阻塞）
             registerFingerprint().catch(e => console.error('指纹注册失败:', e));
-            
-            // 显示主页面
             showMainPage();
         } else {
             showError('login-error', data.detail || '登录失败');
@@ -165,7 +113,6 @@ async function handleLogin(e) {
     }
 }
 
-// 退出处理
 function handleLogout() {
     authToken = null;
     currentUser = null;
@@ -174,7 +121,6 @@ function handleLogout() {
     showLoginPage();
 }
 
-// 检查登录状态
 function checkLoginStatus() {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
@@ -184,127 +130,509 @@ function checkLoginStatus() {
             authToken = token;
             currentUser = JSON.parse(user);
             showMainPage();
-        } catch (e) {
-            showLoginPage();
-        }
-    } else {
-        showLoginPage();
-    }
+        } catch (e) { showLoginPage(); }
+    } else { showLoginPage(); }
 }
 
-// 显示登录页面
 function showLoginPage() {
     document.getElementById('login-page').classList.remove('hidden');
     document.getElementById('main-page').classList.add('hidden');
 }
 
-// 显示主页面
 function showMainPage() {
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('main-page').classList.remove('hidden');
     document.getElementById('current-user').textContent = currentUser.username;
     
-    // 根据角色显示/隐藏菜单
     const adminElements = document.querySelectorAll('.admin-only');
     if (currentUser.role === 'admin') {
-        adminElements.forEach(el => el.style.display = 'block');
+        adminElements.forEach(el => el.style.display = '');
     } else {
         adminElements.forEach(el => el.style.display = 'none');
     }
     
-    // 加载文档列表
     loadDocuments();
 }
 
-// 显示页面
 function showPage(pageName) {
-    // 隐藏所有页面
-    document.querySelectorAll('.content-page').forEach(page => {
-        page.classList.remove('active');
-    });
-    
-    // 显示目标页面
+    document.querySelectorAll('.content-page').forEach(page => page.classList.remove('active'));
     const targetPage = document.getElementById(`page-${pageName}`);
-    if (targetPage) {
-        targetPage.classList.add('active');
-    }
+    if (targetPage) targetPage.classList.add('active');
     
-    // 更新导航状态
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
-        if (item.dataset.page === pageName) {
-            item.classList.add('active');
-        }
+        if (item.dataset.page === pageName) item.classList.add('active');
     });
     
-    // 加载页面数据
     switch (pageName) {
-        case 'documents':
-            loadDocuments();
-            break;
-        case 'logs':
-            loadAccessLogs();
-            break;
-        case 'fingerprints':
-            loadFingerprints();
-            break;
-        case 'users':
-            loadUsers();
-            break;
+        case 'documents': loadDocuments(); break;
+        case 'logs': loadAccessLogs(); break;
+        case 'fingerprints': loadFingerprints(); break;
+        case 'users': loadUsers(); break;
+        case 'upload': loadFolderSelect(); break;
     }
 }
 
-// 加载文档列表
+// ==================== 文档管理 ====================
+
 async function loadDocuments() {
+    const search = document.getElementById('search-input')?.value || '';
+    const sortBy = document.getElementById('sort-by')?.value || 'uploaded_at';
+    const sortOrder = document.getElementById('sort-order')?.value || 'desc';
+    
     try {
-        const response = await fetch(`${API_BASE}/documents`, {
+        // 加载当前目录的子目录
+        const foldersResponse = await fetch(`${API_BASE}/folders?parent_id=${currentFolderId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
+        const foldersData = await foldersResponse.json();
         
-        const data = await response.json();
+        // 加载当前目录的文档
+        const docsResponse = await fetch(`${API_BASE}/documents?folder_id=${currentFolderId}&search=${search}&sort_by=${sortBy}&sort_order=${sortOrder}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const docsData = await docsResponse.json();
         
-        if (response.ok) {
-            renderDocuments(data.documents);
+        if (foldersResponse.ok && docsResponse.ok) {
+            renderFileList(foldersData.folders, docsData.documents);
+            updateBreadcrumb();
         }
     } catch (error) {
         console.error('加载文档失败:', error);
     }
 }
 
-// 渲染文档列表
-function renderDocuments(documents) {
-    const container = document.getElementById('documents-list');
+function renderFileList(folders, documents) {
+    const tbody = document.getElementById('file-body');
+    selectedDocuments.clear();
+    updateBatchBar();
     
-    if (!documents || documents.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">暂无文档，请上传 PDF 文件</p>';
-        return;
+    let html = '';
+    
+    // 渲染目录
+    folders.forEach(folder => {
+        html += `
+            <tr class="file-row folder" data-id="${folder.id}" data-type="folder">
+                <td class="col-checkbox admin-only"><input type="checkbox" disabled></td>
+                <td class="col-icon">📁</td>
+                <td class="file-name" onclick="navigateToFolder(${folder.id}, '${escapeHtml(folder.name)}')">
+                    ${escapeHtml(folder.name)}
+                    <span class="file-count">(${folder.doc_count} 个文件)</span>
+                </td>
+                <td class="col-size">${formatFileSize(folder.total_size)}</td>
+                <td class="col-creator">${escapeHtml(folder.creator_name || '-')}</td>
+                <td class="col-time">${formatDate(folder.created_at)}</td>
+                <td class="col-time">${formatDate(folder.updated_at)}</td>
+                <td class="col-actions admin-only">
+                    <button class="btn-action btn-edit" onclick="showRenameFolderModal(${folder.id}, '${escapeHtml(folder.name)}')" title="重命名">✏️</button>
+                    <button class="btn-action btn-delete" onclick="deleteFolder(${folder.id})" title="删除">🗑️</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    // 渲染文档
+    documents.forEach(doc => {
+        html += `
+            <tr class="file-row document" data-id="${doc.id}" data-type="document">
+                <td class="col-checkbox admin-only">
+                    <input type="checkbox" class="doc-checkbox" value="${doc.id}" onchange="toggleDocumentSelect(${doc.id})">
+                </td>
+                <td class="col-icon">📄</td>
+                <td class="file-name" onclick="viewDocument(${doc.id}, '${escapeHtml(doc.original_name)}')">
+                    ${escapeHtml(doc.original_name)}
+                </td>
+                <td class="col-size">${formatFileSize(doc.file_size)}</td>
+                <td class="col-creator">${escapeHtml(doc.uploader_name || '-')}</td>
+                <td class="col-time">${formatDate(doc.uploaded_at)}</td>
+                <td class="col-time">${formatDate(doc.updated_at)}</td>
+                <td class="col-actions admin-only">
+                    <button class="btn-action btn-move" onclick="showMoveDocModal(${doc.id})" title="移动">📁</button>
+                    <button class="btn-action btn-delete" onclick="deleteDocument(${doc.id})" title="删除">🗑️</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    if (!folders.length && !documents.length) {
+        html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">此目录为空</td></tr>';
     }
     
-    container.innerHTML = documents.map(doc => `
-        <div class="document-card">
-            <h3>📄 ${escapeHtml(doc.original_name)}</h3>
-            <div class="meta">
-                <p>大小: ${formatFileSize(doc.file_size)}</p>
-                <p>上传者: ${escapeHtml(doc.uploaded_by)}</p>
-                <p>上传时间: ${formatDate(doc.uploaded_at)}</p>
-            </div>
-            <button class="btn-view" onclick="viewDocument(${doc.id}, '${escapeHtml(doc.original_name)}')">
-                查看文档
-            </button>
-        </div>
-    `).join('');
+    tbody.innerHTML = html;
 }
 
-// 查看文档
+function navigateToFolder(folderId, folderName) {
+    currentFolderId = folderId;
+    folderPath.push({ id: folderId, name: folderName });
+    loadDocuments();
+}
+
+function navigateToPath(index) {
+    if (index < 0) {
+        currentFolderId = 1;
+        folderPath = [];
+    } else {
+        folderPath = folderPath.slice(0, index + 1);
+        currentFolderId = folderPath[index].id;
+    }
+    loadDocuments();
+}
+
+function updateBreadcrumb() {
+    const breadcrumb = document.getElementById('breadcrumb');
+    let html = '<a href="#" onclick="navigateToPath(-1); return false;">根目录</a>';
+    
+    folderPath.forEach((folder, index) => {
+        html += ` <span>/</span> `;
+        if (index === folderPath.length - 1) {
+            html += `<strong>${escapeHtml(folder.name)}</strong>`;
+        } else {
+            html += `<a href="#" onclick="navigateToPath(${index}); return false;">${escapeHtml(folder.name)}</a>`;
+        }
+    });
+    
+    breadcrumb.innerHTML = html;
+}
+
+function handleSearch(event) {
+    if (event.key === 'Enter') {
+        loadDocuments();
+    }
+}
+
+// ==================== 目录操作 ====================
+
+function showCreateFolderModal() {
+    document.getElementById('new-folder-name').value = '';
+    document.getElementById('create-folder-modal').classList.remove('hidden');
+}
+
+function showRenameFolderModal(folderId, currentName) {
+    document.getElementById('rename-folder-id').value = folderId;
+    document.getElementById('rename-folder-name').value = currentName;
+    document.getElementById('rename-folder-modal').classList.remove('hidden');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+}
+
+async function createFolder() {
+    const name = document.getElementById('new-folder-name').value.trim();
+    if (!name) { alert('请输入目录名称'); return; }
+    
+    try {
+        const response = await fetch(`${API_BASE}/folders`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ name, parent_id: currentFolderId })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            closeModal('create-folder-modal');
+            loadDocuments();
+        } else {
+            alert(data.detail || '创建失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function renameFolder() {
+    const folderId = document.getElementById('rename-folder-id').value;
+    const name = document.getElementById('rename-folder-name').value.trim();
+    if (!name) { alert('请输入新名称'); return; }
+    
+    try {
+        const response = await fetch(`${API_BASE}/folders/${folderId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ name })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            closeModal('rename-folder-modal');
+            loadDocuments();
+        } else {
+            alert(data.detail || '重命名失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function deleteFolder(folderId) {
+    if (!confirm('确定要删除此目录吗？目录下的文件将被移到根目录。')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/folders/${folderId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            loadDocuments();
+        } else {
+            alert(data.detail || '删除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// ==================== 文档操作 ====================
+
+function toggleDocumentSelect(docId) {
+    if (selectedDocuments.has(docId)) {
+        selectedDocuments.delete(docId);
+    } else {
+        selectedDocuments.add(docId);
+    }
+    updateBatchBar();
+}
+
+function toggleSelectAll() {
+    const checkboxes = document.querySelectorAll('.doc-checkbox');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    
+    checkboxes.forEach(cb => {
+        cb.checked = !allChecked;
+        const docId = parseInt(cb.value);
+        if (!allChecked) {
+            selectedDocuments.add(docId);
+        } else {
+            selectedDocuments.delete(docId);
+        }
+    });
+    
+    updateBatchBar();
+}
+
+function updateBatchBar() {
+    const batchBar = document.getElementById('batch-bar');
+    const count = selectedDocuments.size;
+    
+    if (count > 0) {
+        batchBar.style.display = 'flex';
+        document.getElementById('selected-count').textContent = `已选 ${count} 项`;
+    } else {
+        batchBar.style.display = 'none';
+    }
+}
+
+async function deleteDocument(docId) {
+    if (!confirm('确定要删除此文档吗？')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/documents/${docId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            loadDocuments();
+        } else {
+            alert(data.detail || '删除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function batchDelete() {
+    if (!confirm(`确定要删除选中的 ${selectedDocuments.size} 个文档吗？`)) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/documents/batch-delete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ document_ids: Array.from(selectedDocuments) })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            selectedDocuments.clear();
+            loadDocuments();
+        } else {
+            alert(data.detail || '删除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+function showMoveDocModal(docId) {
+    document.getElementById('move-doc-id').value = docId;
+    loadFolderOptions('move-folder-select');
+    document.getElementById('move-doc-modal').classList.remove('hidden');
+}
+
+function showBatchMoveModal() {
+    loadFolderOptions('batch-move-folder-select');
+    document.getElementById('batch-move-modal').classList.remove('hidden');
+}
+
+async function moveDocument() {
+    const docId = document.getElementById('move-doc-id').value;
+    const folderId = document.getElementById('move-folder-select').value;
+    
+    try {
+        const response = await fetch(`${API_BASE}/documents/${docId}/move`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ folder_id: parseInt(folderId) })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            closeModal('move-doc-modal');
+            loadDocuments();
+        } else {
+            alert(data.detail || '移动失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function batchMove() {
+    const folderId = document.getElementById('batch-move-folder-select').value;
+    
+    try {
+        const response = await fetch(`${API_BASE}/documents/batch-move`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ 
+                document_ids: Array.from(selectedDocuments),
+                folder_id: parseInt(folderId)
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            closeModal('batch-move-modal');
+            selectedDocuments.clear();
+            loadDocuments();
+        } else {
+            alert(data.detail || '移动失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function loadFolderOptions(selectId) {
+    try {
+        const response = await fetch(`${API_BASE}/folders`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            const select = document.getElementById(selectId);
+            select.innerHTML = '<option value="1">根目录</option>';
+            data.folders.forEach(folder => {
+                select.innerHTML += `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`;
+            });
+        }
+    } catch (error) {
+        console.error('加载目录失败:', error);
+    }
+}
+
+async function loadFolderSelect() {
+    await loadFolderOptions('upload-folder-select');
+}
+
+// ==================== 文件上传 ====================
+
+function handleFileSelect(e) {
+    if (e.target.files.length > 0) {
+        uploadFiles(e.target.files);
+    }
+}
+
+async function uploadFiles(files) {
+    const folderId = document.getElementById('upload-folder-select')?.value || currentFolderId;
+    const statusEl = document.getElementById('upload-status');
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            failCount++;
+            continue;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        try {
+            const response = await fetch(`${API_BASE}/documents/upload?folder_id=${folderId}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` },
+                body: formData
+            });
+            
+            if (response.ok) {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (error) {
+            failCount++;
+        }
+    }
+    
+    let message = `上传完成：${successCount} 个成功`;
+    if (failCount > 0) message += `，${failCount} 个失败`;
+    
+    statusEl.innerHTML = `<span style="color:${failCount > 0 ? '#e74c3c' : '#27ae60'}">${message}</span>`;
+    
+    if (successCount > 0) {
+        loadDocuments();
+    }
+}
+
+// ==================== 文档查看 ====================
+
 async function viewDocument(docId, docName) {
     currentDocument = { id: docId, name: docName };
     currentPage = 1;
     
     document.getElementById('viewer-doc-name').textContent = docName;
-    
     showPage('viewer');
     
-    // 初始化 PDF.js（延迟初始化）
     if (typeof pdfjsLib !== 'undefined') {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
@@ -324,22 +652,18 @@ async function viewDocument(docId, docName) {
                 renderPage(1);
             }
             
-            // 记录访问
             logAccess(docId, 'view');
         } else {
             alert('加载文档失败');
         }
     } catch (error) {
-        console.error('加载文档失败:', error);
         alert('加载文档失败: ' + error.message);
     }
 }
 
-// 渲染 PDF 页面
 async function renderPage(pageNum) {
     if (!pdfDoc) return;
     
-    // 记录上一页停留时间
     if (pageStartTime && currentDocument) {
         const duration = Math.floor((Date.now() - pageStartTime) / 1000);
         logAccess(currentDocument.id, 'page_view', currentPage, duration);
@@ -354,24 +678,17 @@ async function renderPage(pageNum) {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     
-    await page.render({
-        canvasContext: ctx,
-        viewport: viewport
-    }).promise;
+    await page.render({ canvasContext: ctx, viewport }).promise;
     
-    // 添加水印
     addWatermark(ctx, canvas.width, canvas.height);
     
-    // 更新页码信息
     document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
     currentPage = pageNum;
     pageStartTime = Date.now();
     
-    // 记录页码访问
     logAccess(currentDocument.id, 'page_view', pageNum);
 }
 
-// 添加水印
 function addWatermark(ctx, width, height) {
     const username = currentUser ? currentUser.username : 'Unknown';
     const timestamp = new Date().toLocaleString('zh-CN');
@@ -382,7 +699,6 @@ function addWatermark(ctx, width, height) {
     ctx.font = '20px Arial';
     ctx.rotate(-20 * Math.PI / 180);
     
-    // 多行水印
     for (let y = -height; y < height * 2; y += 100) {
         for (let x = -width; x < width * 2; x += 300) {
             ctx.fillText(watermarkText, x, y);
@@ -392,45 +708,8 @@ function addWatermark(ctx, width, height) {
     ctx.restore();
 }
 
-// 文件选择处理
-function handleFileSelect(e) {
-    const file = e.target.files[0];
-    if (file) {
-        uploadFile(file);
-    }
-}
+// ==================== 其他功能 ====================
 
-// 上传文件
-async function uploadFile(file) {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-        showError('upload-status', '只支持 PDF 文件');
-        return;
-    }
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-        const response = await fetch(`${API_BASE}/documents/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${authToken}` },
-            body: formData
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            showSuccess('upload-status', '上传成功！');
-            loadDocuments();
-        } else {
-            showError('upload-status', data.detail || '上传失败');
-        }
-    } catch (error) {
-        showError('upload-status', '网络错误，请重试');
-    }
-}
-
-// 注册设备指纹
 async function registerFingerprint() {
     try {
         const fingerprinter = new DeviceFingerprint();
@@ -449,7 +728,6 @@ async function registerFingerprint() {
     }
 }
 
-// 记录访问日志
 async function logAccess(docId, action, pageNum = null, duration = 0) {
     try {
         await fetch(`${API_BASE}/access-log`, {
@@ -471,7 +749,6 @@ async function logAccess(docId, action, pageNum = null, duration = 0) {
     }
 }
 
-// 加载访问日志
 async function loadAccessLogs(page = 1) {
     try {
         const response = await fetch(`${API_BASE}/admin/logs?page=${page}&limit=50`, {
@@ -488,7 +765,6 @@ async function loadAccessLogs(page = 1) {
     }
 }
 
-// 渲染访问日志
 function renderLogs(logs, total, page, limit) {
     const tbody = document.getElementById('logs-body');
     
@@ -510,7 +786,6 @@ function renderLogs(logs, total, page, limit) {
         </tr>
     `).join('');
     
-    // 分页
     const totalPagesCount = Math.ceil(total / limit);
     const pagination = document.getElementById('logs-pagination');
     pagination.innerHTML = `
@@ -520,7 +795,6 @@ function renderLogs(logs, total, page, limit) {
     `;
 }
 
-// 加载设备指纹
 async function loadFingerprints() {
     try {
         const response = await fetch(`${API_BASE}/admin/fingerprints`, {
@@ -537,7 +811,6 @@ async function loadFingerprints() {
     }
 }
 
-// 渲染设备指纹
 function renderFingerprints(fingerprints) {
     const tbody = document.getElementById('fingerprints-body');
     
@@ -577,7 +850,6 @@ function renderFingerprints(fingerprints) {
 
 // ==================== 用户管理 ====================
 
-// 加载用户列表
 async function loadUsers() {
     try {
         const response = await fetch(`${API_BASE}/admin/users`, {
@@ -594,12 +866,11 @@ async function loadUsers() {
     }
 }
 
-// 渲染用户列表
 function renderUsers(users) {
     const tbody = document.getElementById('users-body');
     
     if (!users || users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">暂无用户</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">暂无用户</td></tr>';
         return;
     }
     
@@ -627,7 +898,6 @@ function renderUsers(users) {
     `).join('');
 }
 
-// 创建用户
 async function handleCreateUser(e) {
     e.preventDefault();
     
@@ -635,10 +905,7 @@ async function handleCreateUser(e) {
     const password = document.getElementById('new-password').value;
     const role = document.getElementById('new-role').value;
     
-    if (!username || !password) {
-        alert('请输入用户名和密码');
-        return;
-    }
+    if (!username || !password) { alert('请输入用户名和密码'); return; }
     
     try {
         const response = await fetch(`${API_BASE}/register`, {
@@ -665,13 +932,10 @@ async function handleCreateUser(e) {
     }
 }
 
-// 编辑用户
 async function editUser(userId) {
     const newRole = prompt('请输入新角色 (admin/viewer):');
     if (!newRole || !['admin', 'viewer'].includes(newRole)) {
-        if (newRole !== null) {
-            alert('角色只能是 admin 或 viewer');
-        }
+        if (newRole !== null) alert('角色只能是 admin 或 viewer');
         return;
     }
     
@@ -698,12 +962,9 @@ async function editUser(userId) {
     }
 }
 
-// 切换用户状态（启用/停用）
 async function toggleUser(userId, currentStatus) {
     const action = currentStatus ? '停用' : '启用';
-    if (!confirm(`确定要${action}该用户吗？`)) {
-        return;
-    }
+    if (!confirm(`确定要${action}该用户吗？`)) return;
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
@@ -728,12 +989,9 @@ async function toggleUser(userId, currentStatus) {
     }
 }
 
-// 重置密码
 async function resetPassword(userId) {
     const newPassword = prompt('请输入新密码（至少6位）:');
-    if (!newPassword) {
-        return;
-    }
+    if (!newPassword) return;
     
     if (newPassword.length < 6) {
         alert('密码长度至少6位');
@@ -762,18 +1020,13 @@ async function resetPassword(userId) {
     }
 }
 
-// 删除用户
 async function deleteUser(userId) {
-    if (!confirm('确定要删除该用户吗？此操作不可恢复！')) {
-        return;
-    }
+    if (!confirm('确定要删除该用户吗？此操作不可恢复！')) return;
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
             method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
         const data = await response.json();
@@ -791,7 +1044,6 @@ async function deleteUser(userId) {
 
 // ==================== 修改密码 ====================
 
-// 修改密码
 async function handleChangePassword(e) {
     e.preventDefault();
     
@@ -799,20 +1051,9 @@ async function handleChangePassword(e) {
     const newPassword = document.getElementById('new-password-change').value;
     const confirmPassword = document.getElementById('confirm-password').value;
     
-    if (!oldPassword || !newPassword || !confirmPassword) {
-        alert('请填写所有字段');
-        return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-        alert('两次输入的新密码不一致');
-        return;
-    }
-    
-    if (newPassword.length < 6) {
-        alert('新密码长度至少6位');
-        return;
-    }
+    if (!oldPassword || !newPassword || !confirmPassword) { alert('请填写所有字段'); return; }
+    if (newPassword !== confirmPassword) { alert('两次输入的新密码不一致'); return; }
+    if (newPassword.length < 6) { alert('新密码长度至少6位'); return; }
     
     try {
         const response = await fetch(`${API_BASE}/change-password`, {
@@ -821,10 +1062,7 @@ async function handleChangePassword(e) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${authToken}`
             },
-            body: JSON.stringify({
-                old_password: oldPassword,
-                new_password: newPassword
-            })
+            body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
         });
         
         const data = await response.json();
@@ -840,7 +1078,8 @@ async function handleChangePassword(e) {
     }
 }
 
-// 工具函数
+// ==================== 工具函数 ====================
+
 function showError(elementId, message) {
     const element = document.getElementById(elementId);
     if (element) {

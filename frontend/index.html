@@ -58,8 +58,62 @@
                 <main class="content">
                     <!-- 文档列表 -->
                     <div id="page-documents" class="content-page active">
-                        <h2>文档列表</h2>
-                        <div id="documents-list" class="documents-grid"></div>
+                        <div class="page-header">
+                            <h2>文档管理</h2>
+                            <div class="page-actions">
+                                <button class="btn-primary admin-only" onclick="showCreateFolderModal()">📁 新建目录</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 面包屑导航 -->
+                        <div class="breadcrumb" id="breadcrumb"></div>
+                        
+                        <!-- 搜索和排序 -->
+                        <div class="toolbar">
+                            <div class="search-box">
+                                <input type="text" id="search-input" placeholder="搜索文件名..." onkeyup="handleSearch(event)">
+                                <button class="btn-search" onclick="loadDocuments()">🔍</button>
+                            </div>
+                            <div class="sort-box">
+                                <select id="sort-by" onchange="loadDocuments()">
+                                    <option value="uploaded_at">上传时间</option>
+                                    <option value="original_name">文件名</option>
+                                    <option value="file_size">文件大小</option>
+                                    <option value="updated_at">修改时间</option>
+                                </select>
+                                <select id="sort-order" onchange="loadDocuments()">
+                                    <option value="desc">降序</option>
+                                    <option value="asc">升序</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- 批量操作栏 -->
+                        <div class="batch-bar admin-only" id="batch-bar" style="display:none;">
+                            <label><input type="checkbox" id="select-all" onchange="toggleSelectAll()"> 全选</label>
+                            <span id="selected-count">已选 0 项</span>
+                            <button class="btn-danger" onclick="batchDelete()">🗑️ 批量删除</button>
+                            <button class="btn-secondary" onclick="showBatchMoveModal()">📁 批量移动</button>
+                        </div>
+                        
+                        <!-- 目录和文档列表 -->
+                        <div class="file-list">
+                            <table id="file-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-checkbox admin-only"><input type="checkbox" id="header-checkbox" onchange="toggleSelectAll()"></th>
+                                        <th class="col-icon">类型</th>
+                                        <th class="col-name">名称</th>
+                                        <th class="col-size">大小</th>
+                                        <th class="col-creator">创建者</th>
+                                        <th class="col-time">创建时间</th>
+                                        <th class="col-time">修改时间</th>
+                                        <th class="col-actions admin-only">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="file-body"></tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- 文档查看器 -->
@@ -84,11 +138,15 @@
                     <!-- 上传文档 -->
                     <div id="page-upload" class="content-page">
                         <h2>上传文档</h2>
+                        <div class="upload-target">
+                            <label>上传到目录：</label>
+                            <select id="upload-folder-select"></select>
+                        </div>
                         <form id="upload-form" class="upload-form">
                             <div class="upload-area" id="drop-zone">
                                 <p>📄 拖拽 PDF 文件到此处</p>
                                 <p>或</p>
-                                <input type="file" id="file-input" accept=".pdf" hidden>
+                                <input type="file" id="file-input" accept=".pdf" multiple hidden>
                                 <button type="button" class="btn-primary" onclick="document.getElementById('file-input').click()">
                                     选择文件
                                 </button>
@@ -199,6 +257,68 @@
                         </div>
                     </div>
                 </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建目录弹窗 -->
+    <div id="create-folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>新建目录</h3>
+            <div class="form-group">
+                <label>目录名称</label>
+                <input type="text" id="new-folder-name" placeholder="请输入目录名称">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('create-folder-modal')">取消</button>
+                <button class="btn-primary" onclick="createFolder()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重命名目录弹窗 -->
+    <div id="rename-folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>重命名目录</h3>
+            <div class="form-group">
+                <label>新名称</label>
+                <input type="text" id="rename-folder-name" placeholder="请输入新名称">
+            </div>
+            <input type="hidden" id="rename-folder-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('rename-folder-modal')">取消</button>
+                <button class="btn-primary" onclick="renameFolder()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 移动文档弹窗 -->
+    <div id="move-doc-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>移动到目录</h3>
+            <div class="form-group">
+                <label>选择目标目录</label>
+                <select id="move-folder-select"></select>
+            </div>
+            <input type="hidden" id="move-doc-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('move-doc-modal')">取消</button>
+                <button class="btn-primary" onclick="moveDocument()">移动</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量移动弹窗 -->
+    <div id="batch-move-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>批量移动到目录</h3>
+            <div class="form-group">
+                <label>选择目标目录</label>
+                <select id="batch-move-folder-select"></select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('batch-move-modal')">取消</button>
+                <button class="btn-primary" onclick="batchMove()">移动</button>
             </div>
         </div>
     </div>
