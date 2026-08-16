@@ -951,6 +951,29 @@ function renderFingerprints(fingerprints) {
 
 // ==================== 用户管理 ====================
 
+var userSortField = "id";
+var userSortOrder = "asc";
+
+function sortUsers(field) {
+    if (userSortField === field) {
+        userSortOrder = userSortOrder === "asc" ? "desc" : "asc";
+    } else {
+        userSortField = field;
+        userSortOrder = "asc";
+    }
+    
+    allUsersData.sort(function(a, b) {
+        var valA = a[field] || "";
+        var valB = b[field] || "";
+        if (typeof valA === "string") valA = valA.toLowerCase();
+        if (typeof valB === "string") valB = valB.toLowerCase();
+        if (valA < valB) return userSortOrder === "asc" ? -1 : 1;
+        if (valA > valB) return userSortOrder === "asc" ? 1 : -1;
+        return 0;
+    });
+    
+    renderUsers(allUsersData);
+}
 async function loadUsers() {
     try {
         const response = await fetch(`${API_BASE}/admin/users`, {
