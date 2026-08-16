@@ -16,14 +16,13 @@ class DeviceFingerprint {
             timezone: this.getTimezone(),
             language: this.getLanguage(),
             plugins: this.getPlugins(),
-            fonts: this.getFonts(),
             hardware: this.getHardwareInfo(),
             userAgent: navigator.userAgent
         };
 
-        // 生成唯一指纹哈希
+        // 生成唯一指纹哈希（兼容 HTTP 环境）
         const fingerprintString = JSON.stringify(data);
-        this.fingerprint = await this.sha256(fingerprintString);
+        this.fingerprint = await this.simpleHash(fingerprintString);
 
         return {
             fingerprint_hash: this.fingerprint,
@@ -34,6 +33,28 @@ class DeviceFingerprint {
             language: data.language,
             user_agent: data.userAgent
         };
+    }
+
+    // 简单哈希函数（兼容 HTTP 环境，不依赖 crypto.subtle）
+    async simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        // 转为16进制字符串，并补充更多位
+        const hash1 = Math.abs(hash).toString(16).padStart(8, '0');
+        
+        // 使用更多数据生成第二个哈希
+        let hash2 = 5381;
+        for (let i = 0; i < str.length; i++) {
+            hash2 = ((hash2 << 5) + hash2) + str.charCodeAt(i);
+            hash2 = hash2 & hash2;
+        }
+        const hash2Str = Math.abs(hash2).toString(16).padStart(8, '0');
+        
+        return hash1 + hash2Str + this.getCanvasFingerprint().substring(0, 16);
     }
 
     getCanvasFingerprint() {
@@ -50,19 +71,13 @@ class DeviceFingerprint {
             ctx.fillStyle = '#f60';
             ctx.fillRect(125, 1, 62, 20);
             ctx.fillStyle = '#069';
-            ctx.fillText('Hello, world! 你好世界', 2, 15);
+            ctx.fillText('Hello, world!', 2, 15);
             ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-            ctx.fillText('Hello, world! 你好世界', 4, 17);
-            
-            // 绘制图形
-            ctx.beginPath();
-            ctx.arc(50, 25, 20, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgb(255,0,0)';
-            ctx.fill();
+            ctx.fillText('Hello, world!', 4, 17);
             
             return canvas.toDataURL();
         } catch (e) {
-            return 'canvas-error';
+            return 'canvas-error-' + Date.now();
         }
     }
 
@@ -80,11 +95,7 @@ class DeviceFingerprint {
                 vendor: gl.getParameter(gl.VENDOR),
                 renderer: gl.getParameter(gl.RENDERER),
                 unmaskedVendor: debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'unknown',
-                unmaskedRenderer: debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown',
-                version: gl.getParameter(gl.VERSION),
-                shadingLanguageVersion: gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
-                maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
-                maxViewportDims: gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+                unmaskedRenderer: debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown'
             };
         } catch (e) {
             return { supported: false, error: e.message };
@@ -95,8 +106,6 @@ class DeviceFingerprint {
         return {
             width: window.screen.width,
             height: window.screen.height,
-            availWidth: window.screen.availWidth,
-            availHeight: window.screen.availHeight,
             colorDepth: window.screen.colorDepth,
             pixelRatio: window.devicePixelRatio || 1
         };
@@ -117,41 +126,11 @@ class DeviceFingerprint {
     getPlugins() {
         const plugins = [];
         if (navigator.plugins) {
-            for (let i = 0; i < navigator.plugins.length; i++) {
-                const plugin = navigator.plugins[i];
-                plugins.push({
-                    name: plugin.name,
-                    description: plugin.description
-                });
+            for (let i = 0; i < Math.min(navigator.plugins.length, 5); i++) {
+                plugins.push(navigator.plugins[i].name);
             }
         }
         return plugins;
-    }
-
-    getFonts() {
-        // 常见字体检测
-        const testFonts = [
-            'Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia',
-            'Palatino', 'Garamond', 'Bookman', 'Comic Sans MS', 'Trebuchet MS',
-            'Arial Black', 'Impact', 'Microsoft YaHei', 'SimSun', 'SimHei'
-        ];
-        
-        const detectedFonts = [];
-        const testString = 'mmmmmmmmmmlli';
-        const testSize = '72px';
-        
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        testFonts.forEach(font => {
-            ctx.font = testSize + ' ' + font;
-            const width = ctx.measureText(testString).width;
-            if (width > 0) {
-                detectedFonts.push(font);
-            }
-        });
-        
-        return detectedFonts;
     }
 
     getHardwareInfo() {
@@ -160,14 +139,6 @@ class DeviceFingerprint {
             memory: navigator.deviceMemory || 'unknown',
             platform: navigator.platform || 'unknown'
         };
-    }
-
-    async sha256(message) {
-        const msgBuffer = new TextEncoder().encode(message);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        return hashHex;
     }
 
     getFingerprint() {

@@ -9,7 +9,6 @@ let currentDocument = null;
 let currentPage = 1;
 let totalPages = 0;
 let pdfDoc = null;
-let deviceFingerprint = null;
 let pageStartTime = null;
 let currentFingerprintHash = null;
 
@@ -18,13 +17,16 @@ const API_BASE = '/api';
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
-    // 初始化 PDF.js
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    
-    // 收集设备指纹
-    const fingerprinter = new DeviceFingerprint();
-    const fingerprintData = await fingerprinter.collect();
-    currentFingerprintHash = fingerprintData.fingerprint_hash;
+    try {
+        // 收集设备指纹
+        const fingerprinter = new DeviceFingerprint();
+        const fingerprintData = await fingerprinter.collect();
+        currentFingerprintHash = fingerprintData.fingerprint_hash;
+        console.log('设备指纹已收集:', currentFingerprintHash.substring(0, 16) + '...');
+    } catch (e) {
+        console.error('指纹收集失败:', e);
+        currentFingerprintHash = 'unknown-' + Date.now();
+    }
     
     // 检查登录状态
     checkLoginStatus();
@@ -36,10 +38,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 事件绑定
 function bindEvents() {
     // 登录表单
-    document.getElementById('login-form').addEventListener('submit', handleLogin);
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+        console.log('登录表单已绑定');
+    }
     
     // 退出按钮
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
     
     // 导航菜单
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -53,14 +62,15 @@ function bindEvents() {
     });
     
     // PDF 翻页
-    document.getElementById('prev-page').addEventListener('click', () => {
+    const prevPage = document.getElementById('prev-page');
+    const nextPage = document.getElementById('next-page');
+    if (prevPage) prevPage.addEventListener('click', () => {
         if (currentPage > 1) {
             currentPage--;
             renderPage(currentPage);
         }
     });
-    
-    document.getElementById('next-page').addEventListener('click', () => {
+    if (nextPage) nextPage.addEventListener('click', () => {
         if (currentPage < totalPages) {
             currentPage++;
             renderPage(currentPage);
@@ -68,41 +78,58 @@ function bindEvents() {
     });
     
     // 返回列表
-    document.getElementById('back-to-list').addEventListener('click', () => {
-        showPage('documents');
-    });
+    const backBtn = document.getElementById('back-to-list');
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            showPage('documents');
+        });
+    }
     
     // 文件上传
-    document.getElementById('file-input').addEventListener('change', handleFileSelect);
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
     
     // 拖拽上传
     const dropZone = document.getElementById('drop-zone');
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.style.borderColor = '#e74c3c';
-    });
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.style.borderColor = '#3498db';
-    });
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.style.borderColor = '#3498db';
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            uploadFile(files[0]);
-        }
-    });
+    if (dropZone) {
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#e74c3c';
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = '#3498db';
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#3498db';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadFile(files[0]);
+            }
+        });
+    }
     
     // 创建用户表单
-    document.getElementById('create-user-form').addEventListener('submit', handleCreateUser);
+    const createUserForm = document.getElementById('create-user-form');
+    if (createUserForm) {
+        createUserForm.addEventListener('submit', handleCreateUser);
+    }
 }
 
 // 登录处理
 async function handleLogin(e) {
     e.preventDefault();
+    console.log('开始登录...');
     
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
+    
+    if (!username || !password) {
+        showError('login-error', '请输入用户名和密码');
+        return;
+    }
     
     try {
         const response = await fetch(`${API_BASE}/login`, {
@@ -112,6 +139,7 @@ async function handleLogin(e) {
         });
         
         const data = await response.json();
+        console.log('登录响应:', response.status);
         
         if (response.ok) {
             authToken = data.token;
@@ -121,8 +149,10 @@ async function handleLogin(e) {
             localStorage.setItem('token', authToken);
             localStorage.setItem('user', JSON.stringify(currentUser));
             
-            // 注册设备指纹
-            await registerFingerprint();
+            console.log('登录成功，用户:', currentUser.username);
+            
+            // 注册设备指纹（后台执行，不阻塞）
+            registerFingerprint().catch(e => console.error('指纹注册失败:', e));
             
             // 显示主页面
             showMainPage();
@@ -130,6 +160,7 @@ async function handleLogin(e) {
             showError('login-error', data.detail || '登录失败');
         }
     } catch (error) {
+        console.error('登录错误:', error);
         showError('login-error', '网络错误，请重试');
     }
 }
@@ -149,9 +180,13 @@ function checkLoginStatus() {
     const user = localStorage.getItem('user');
     
     if (token && user) {
-        authToken = token;
-        currentUser = JSON.parse(user);
-        showMainPage();
+        try {
+            authToken = token;
+            currentUser = JSON.parse(user);
+            showMainPage();
+        } catch (e) {
+            showLoginPage();
+        }
     } else {
         showLoginPage();
     }
@@ -170,14 +205,11 @@ function showMainPage() {
     document.getElementById('current-user').textContent = currentUser.username;
     
     // 根据角色显示/隐藏菜单
+    const adminElements = document.querySelectorAll('.admin-only');
     if (currentUser.role === 'admin') {
-        document.querySelectorAll('.admin-only').forEach(el => {
-            el.style.display = 'block';
-        });
+        adminElements.forEach(el => el.style.display = 'block');
     } else {
-        document.querySelectorAll('.admin-only').forEach(el => {
-            el.style.display = 'none';
-        });
+        adminElements.forEach(el => el.style.display = 'none');
     }
     
     // 加载文档列表
@@ -243,8 +275,8 @@ async function loadDocuments() {
 function renderDocuments(documents) {
     const container = document.getElementById('documents-list');
     
-    if (documents.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:#666;">暂无文档</p>';
+    if (!documents || documents.length === 0) {
+        container.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">暂无文档，请上传 PDF 文件</p>';
         return;
     }
     
@@ -272,6 +304,11 @@ async function viewDocument(docId, docName) {
     
     showPage('viewer');
     
+    // 初始化 PDF.js（延迟初始化）
+    if (typeof pdfjsLib !== 'undefined') {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/documents/${docId}/view`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
@@ -281,17 +318,20 @@ async function viewDocument(docId, docName) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             
-            pdfDoc = await pdfjsLib.getDocument(url).promise;
-            totalPages = pdfDoc.numPages;
-            
-            renderPage(1);
+            if (typeof pdfjsLib !== 'undefined') {
+                pdfDoc = await pdfjsLib.getDocument(url).promise;
+                totalPages = pdfDoc.numPages;
+                renderPage(1);
+            }
             
             // 记录访问
             logAccess(docId, 'view');
+        } else {
+            alert('加载文档失败');
         }
     } catch (error) {
         console.error('加载文档失败:', error);
-        alert('加载文档失败');
+        alert('加载文档失败: ' + error.message);
     }
 }
 
@@ -452,6 +492,11 @@ async function loadAccessLogs(page = 1) {
 function renderLogs(logs, total, page, limit) {
     const tbody = document.getElementById('logs-body');
     
+    if (!logs || logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">暂无访问记录</td></tr>';
+        return;
+    }
+    
     tbody.innerHTML = logs.map(log => `
         <tr>
             <td>${formatDate(log.timestamp)}</td>
@@ -466,12 +511,12 @@ function renderLogs(logs, total, page, limit) {
     `).join('');
     
     // 分页
-    const totalPages = Math.ceil(total / limit);
+    const totalPagesCount = Math.ceil(total / limit);
     const pagination = document.getElementById('logs-pagination');
     pagination.innerHTML = `
         <button onclick="loadAccessLogs(${page - 1})" ${page <= 1 ? 'disabled' : ''}>上一页</button>
-        <span>第 ${page} 页 / 共 ${totalPages} 页</span>
-        <button onclick="loadAccessLogs(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+        <span>第 ${page} 页 / 共 ${totalPagesCount} 页</span>
+        <button onclick="loadAccessLogs(${page + 1})" ${page >= totalPagesCount ? 'disabled' : ''}>下一页</button>
     `;
 }
 
@@ -496,6 +541,11 @@ async function loadFingerprints() {
 function renderFingerprints(fingerprints) {
     const tbody = document.getElementById('fingerprints-body');
     
+    if (!fingerprints || fingerprints.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">暂无设备记录</td></tr>';
+        return;
+    }
+    
     tbody.innerHTML = fingerprints.map(fp => {
         let os = 'Unknown';
         const ua = fp.user_agent || '';
@@ -513,7 +563,7 @@ function renderFingerprints(fingerprints) {
         
         return `
             <tr>
-                <td title="${fp.fingerprint_hash}">${fp.fingerprint_hash.substring(0, 12)}...</td>
+                <td title="${fp.fingerprint_hash}">${fp.fingerprint_hash ? fp.fingerprint_hash.substring(0, 12) + '...' : '-'}</td>
                 <td>${escapeHtml(fp.username)}</td>
                 <td>${formatDate(fp.first_seen)}</td>
                 <td>${formatDate(fp.last_seen)}</td>
@@ -546,6 +596,11 @@ async function loadUsers() {
 function renderUsers(users) {
     const tbody = document.getElementById('users-body');
     
+    if (!users || users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">暂无用户</td></tr>';
+        return;
+    }
+    
     tbody.innerHTML = users.map(user => `
         <tr>
             <td>${user.id}</td>
@@ -562,6 +617,11 @@ async function handleCreateUser(e) {
     
     const username = document.getElementById('new-username').value;
     const password = document.getElementById('new-password').value;
+    
+    if (!username || !password) {
+        alert('请输入用户名和密码');
+        return;
+    }
     
     try {
         const response = await fetch(`${API_BASE}/register`, {
@@ -591,14 +651,18 @@ async function handleCreateUser(e) {
 // 工具函数
 function showError(elementId, message) {
     const element = document.getElementById(elementId);
-    element.textContent = message;
-    element.style.color = '#e74c3c';
+    if (element) {
+        element.textContent = message;
+        element.style.color = '#e74c3c';
+    }
 }
 
 function showSuccess(elementId, message) {
     const element = document.getElementById(elementId);
-    element.textContent = message;
-    element.style.color = '#27ae60';
+    if (element) {
+        element.textContent = message;
+        element.style.color = '#27ae60';
+    }
 }
 
 function escapeHtml(text) {
