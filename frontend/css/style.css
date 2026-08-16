@@ -734,3 +734,134 @@ tr:hover {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     margin-top: 15px;
 }
+
+/* 权限配置样式 */
+.permission-toolbar {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.permission-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.permission-selector select {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    min-width: 150px;
+}
+
+.permission-section {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.permission-section h3 {
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+.permission-section .hint {
+    color: #666;
+    font-size: 12px;
+    margin-bottom: 15px;
+}
+
+.permission-tree {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.permission-item {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.permission-item:last-child {
+    border-bottom: none;
+}
+
+.permission-item label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.permission-item .folder-icon {
+    font-size: 18px;
+}
+
+.permission-item .perm-status {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 3px;
+}
+
+.perm-granted {
+    background: #d4edda;
+    color: #155724;
+}
+
+.perm-inherited {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.perm-denied {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* 用户组成员管理 */
+.group-members {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 5px;
+}
+
+.group-members h4 {
+    margin-bottom: 10px;
+}
+
+.member-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.member-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: #e3f2fd;
+    border-radius: 15px;
+    font-size: 14px;
+}
+
+.member-tag .remove-member {
+    cursor: pointer;
+    color: #e74c3c;
+    font-weight: bold;
+}
+

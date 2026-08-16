@@ -1,6 +1,6 @@
 """
 安全文档共享平台 - 后端服务
-方案B：Canvas渲染 + 设备指纹 + 隐形水印
+支持用户组和细粒度权限管理
 """
 
 import os
@@ -42,7 +42,8 @@ app.add_middleware(
 
 security = HTTPBearer()
 
-# 数据库初始化
+# ==================== 数据库初始化 ====================
+
 def init_db():
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -53,10 +54,21 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT DEFAULT 'viewer',
+        group_id INTEGER DEFAULT NULL,
         is_active BOOLEAN DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP
+        last_login TIMESTAMP,
+        FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE SET NULL
+    )''')
+    
+    # 用户组表
+    c.execute('''CREATE TABLE IF NOT EXISTS user_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     
     # 目录表
@@ -83,6 +95,54 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_active BOOLEAN DEFAULT 1,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+    )''')
+    
+    # 用户-目录权限表
+    c.execute('''CREATE TABLE IF NOT EXISTS user_folder_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        folder_id INTEGER NOT NULL,
+        can_read BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+        UNIQUE(user_id, folder_id)
+    )''')
+    
+    # 用户-文档权限表
+    c.execute('''CREATE TABLE IF NOT EXISTS user_document_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        document_id INTEGER NOT NULL,
+        can_read BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+        UNIQUE(user_id, document_id)
+    )''')
+    
+    # 用户组-目录权限表
+    c.execute('''CREATE TABLE IF NOT EXISTS group_folder_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        folder_id INTEGER NOT NULL,
+        can_read BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+        UNIQUE(group_id, folder_id)
+    )''')
+    
+    # 用户组-文档权限表
+    c.execute('''CREATE TABLE IF NOT EXISTS group_document_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        document_id INTEGER NOT NULL,
+        can_read BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+        UNIQUE(group_id, document_id)
     )''')
     
     # 访问日志表
@@ -129,7 +189,8 @@ def init_db():
 
 init_db()
 
-# Pydantic 模型
+# ==================== Pydantic 模型 ====================
+
 class UserLogin(BaseModel):
     username: str
     password: str
@@ -138,16 +199,26 @@ class UserCreate(BaseModel):
     username: str
     password: str
     role: str = "viewer"
+    group_id: Optional[int] = None
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
+    group_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 class ChangePassword(BaseModel):
     old_password: str
     new_password: str
+
+class GroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 class FolderCreate(BaseModel):
     name: str
@@ -166,6 +237,18 @@ class BatchMove(BaseModel):
     document_ids: List[int]
     folder_id: int
 
+class PermissionCreate(BaseModel):
+    target_type: str  # 'user' 或 'group'
+    target_id: int
+    resource_type: str  # 'folder' 或 'document'
+    resource_id: int
+    can_read: bool = True
+
+class BatchPermissionCreate(BaseModel):
+    target_type: str
+    target_id: int
+    permissions: List[dict]  # [{resource_type, resource_id, can_read}, ...]
+
 class DeviceFingerprint(BaseModel):
     fingerprint_hash: str
     canvas_fingerprint: str
@@ -182,15 +265,17 @@ class AccessLog(BaseModel):
     device_fingerprint: str
     duration_seconds: Optional[int] = 0
 
-# 工具函数
+# ==================== 工具函数 ====================
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
-def create_token(username: str, role: str) -> str:
+def create_token(username: str, role: str, user_id: int) -> str:
     payload = {
         "username": username,
         "role": role,
-        "exp": datetime.now(timezone.utc).timestamp() + 86400  # 24小时
+        "user_id": user_id,
+        "exp": datetime.now(timezone.utc).timestamp() + 86400
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
@@ -205,6 +290,117 @@ def get_db():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+def check_folder_permission(user_id: int, folder_id: int, db) -> bool:
+    """检查用户是否有目录的读取权限（包括继承）"""
+    c = db.cursor()
+    
+    # 获取用户信息
+    c.execute("SELECT role, group_id FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    
+    # 管理员拥有所有权限
+    if user and user["role"] == "admin":
+        return True
+    
+    # 检查直接用户权限
+    c.execute("""SELECT id FROM user_folder_permissions 
+                WHERE user_id = ? AND folder_id = ? AND can_read = 1""",
+              (user_id, folder_id))
+    if c.fetchone():
+        return True
+    
+    # 检查用户组权限
+    if user and user["group_id"]:
+        c.execute("""SELECT id FROM group_folder_permissions 
+                    WHERE group_id = ? AND folder_id = ? AND can_read = 1""",
+                  (user["group_id"], folder_id))
+        if c.fetchone():
+            return True
+    
+    # 检查父目录权限（继承）
+    c.execute("SELECT parent_id FROM folders WHERE id = ?", (folder_id,))
+    folder = c.fetchone()
+    if folder and folder["parent_id"]:
+        return check_folder_permission(user_id, folder["parent_id"], db)
+    
+    return False
+
+def check_document_permission(user_id: int, document_id: int, db) -> bool:
+    """检查用户是否有文档的读取权限"""
+    c = db.cursor()
+    
+    # 获取用户信息
+    c.execute("SELECT role, group_id FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    
+    # 管理员拥有所有权限
+    if user and user["role"] == "admin":
+        return True
+    
+    # 检查直接用户权限
+    c.execute("""SELECT id FROM user_document_permissions 
+                WHERE user_id = ? AND document_id = ? AND can_read = 1""",
+              (user_id, document_id))
+    if c.fetchone():
+        return True
+    
+    # 检查用户组权限
+    if user and user["group_id"]:
+        c.execute("""SELECT id FROM group_document_permissions 
+                    WHERE group_id = ? AND document_id = ? AND can_read = 1""",
+                  (user["group_id"], document_id))
+        if c.fetchone():
+            return True
+    
+    # 检查文档所在目录的权限（继承）
+    c.execute("SELECT folder_id FROM documents WHERE id = ?", (document_id,))
+    doc = c.fetchone()
+    if doc and doc["folder_id"]:
+        return check_folder_permission(user_id, doc["folder_id"], db)
+    
+    return False
+
+def get_user_accessible_folder_ids(user_id: int, db) -> List[int]:
+    """获取用户有权限访问的所有目录ID"""
+    c = db.cursor()
+    
+    accessible_ids = set()
+    
+    # 获取用户信息
+    c.execute("SELECT role, group_id FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    
+    # 管理员可以访问所有目录
+    if user and user["role"] == "admin":
+        c.execute("SELECT id FROM folders WHERE is_active = 1")
+        return [row["id"] for row in c.fetchall()]
+    
+    # 获取用户直接有权限的目录
+    c.execute("SELECT folder_id FROM user_folder_permissions WHERE user_id = ? AND can_read = 1",
+              (user_id,))
+    for row in c.fetchall():
+        accessible_ids.add(row["folder_id"])
+        # 添加所有子目录
+        _add_child_folder_ids(row["folder_id"], accessible_ids, db)
+    
+    # 获取用户组有权限的目录
+    if user and user["group_id"]:
+        c.execute("SELECT folder_id FROM group_folder_permissions WHERE group_id = ? AND can_read = 1",
+                  (user["group_id"],))
+        for row in c.fetchall():
+            accessible_ids.add(row["folder_id"])
+            _add_child_folder_ids(row["folder_id"], accessible_ids, db)
+    
+    return list(accessible_ids)
+
+def _add_child_folder_ids(folder_id: int, ids_set: set, db):
+    """递归添加子目录ID"""
+    c = db.cursor()
+    c.execute("SELECT id FROM folders WHERE parent_id = ? AND is_active = 1", (folder_id,))
+    for row in c.fetchall():
+        ids_set.add(row["id"])
+        _add_child_folder_ids(row["id"], ids_set, db)
 
 # ==================== 认证 API ====================
 
@@ -226,12 +422,11 @@ async def login(user: UserLogin, request: Request):
         conn.close()
         raise HTTPException(status_code=403, detail="账号已被停用，请联系管理员")
     
-    # 更新最后登录时间
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
     conn.commit()
     conn.close()
     
-    token = create_token(user_data["username"], user_data["role"])
+    token = create_token(user_data["username"], user_data["role"], user_data["id"])
     return {
         "token": token,
         "user": {
@@ -251,8 +446,8 @@ async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
     
     password_hash = hash_password(user.password)
     try:
-        c.execute("INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
-                  (user.username, password_hash, user.role, 1))
+        c.execute("INSERT INTO users (username, password_hash, role, group_id, is_active) VALUES (?, ?, ?, ?, ?)",
+                  (user.username, password_hash, user.role, user.group_id, 1))
         conn.commit()
         conn.close()
         return {"message": "用户创建成功"}
@@ -261,14 +456,10 @@ async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
         raise HTTPException(status_code=400, detail="用户名已存在")
 
 @app.post("/api/change-password")
-async def change_password(
-    passwords: ChangePassword,
-    token_data: dict = Depends(verify_token)
-):
+async def change_password(passwords: ChangePassword, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
     
-    # 验证旧密码
     old_hash = hash_password(passwords.old_password)
     c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
               (token_data["username"], old_hash))
@@ -277,7 +468,6 @@ async def change_password(
         conn.close()
         raise HTTPException(status_code=400, detail="旧密码错误")
     
-    # 更新密码
     new_hash = hash_password(passwords.new_password)
     c.execute("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
               (new_hash, token_data["username"]))
@@ -285,6 +475,102 @@ async def change_password(
     conn.close()
     
     return {"message": "密码修改成功"}
+
+# ==================== 用户组 API ====================
+
+@app.get("/api/groups")
+async def list_groups(token_data: dict = Depends(verify_token)):
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("""SELECT g.*, 
+                (SELECT COUNT(*) FROM users WHERE group_id = g.id AND is_active = 1) as member_count
+                FROM user_groups g ORDER BY g.name""")
+    groups = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
+    return {"groups": groups}
+
+@app.post("/api/groups")
+async def create_group(group: GroupCreate, token_data: dict = Depends(verify_token)):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以创建用户组")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    try:
+        c.execute("INSERT INTO user_groups (name, description) VALUES (?, ?)",
+                  (group.name, group.description))
+        group_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return {"group_id": group_id, "message": "用户组创建成功"}
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail="用户组名已存在")
+
+@app.put("/api/groups/{group_id}")
+async def update_group(group_id: int, group_update: GroupUpdate, token_data: dict = Depends(verify_token)):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以修改用户组")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT id FROM user_groups WHERE id = ?", (group_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="用户组不存在")
+    
+    updates = []
+    params = []
+    
+    if group_update.name is not None:
+        updates.append("name = ?")
+        params.append(group_update.name)
+    
+    if group_update.description is not None:
+        updates.append("description = ?")
+        params.append(group_update.description)
+    
+    if updates:
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(group_id)
+        c.execute(f"UPDATE user_groups SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+    
+    conn.close()
+    return {"message": "用户组更新成功"}
+
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: int, token_data: dict = Depends(verify_token)):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以删除用户组")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 将组内用户的 group_id 设为 NULL
+    c.execute("UPDATE users SET group_id = NULL WHERE group_id = ?", (group_id,))
+    
+    # 删除用户组
+    c.execute("DELETE FROM user_groups WHERE id = ?", (group_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "用户组删除成功"}
+
+@app.get("/api/groups/{group_id}/members")
+async def list_group_members(group_id: int, token_data: dict = Depends(verify_token)):
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT id, username, role, is_active FROM users WHERE group_id = ? ORDER BY username", (group_id,))
+    members = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
+    return {"members": members}
 
 # ==================== 目录 API ====================
 
@@ -296,15 +582,13 @@ async def list_folders(
     conn = get_db()
     c = conn.cursor()
     
+    user_id = token_data.get("user_id")
+    
     if parent_id is None:
-        c.execute("""SELECT f.*, u.username as creator_name,
-                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
-                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
-                    FROM folders f 
-                    LEFT JOIN users u ON f.created_by = u.username
-                    WHERE f.parent_id = 1 AND f.is_active = 1 
-                    ORDER BY f.name""")
-    else:
+        parent_id = 1
+    
+    # 管理员可以看到所有目录
+    if token_data.get("role") == "admin":
         c.execute("""SELECT f.*, u.username as creator_name,
                     (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
                     (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
@@ -312,6 +596,21 @@ async def list_folders(
                     LEFT JOIN users u ON f.created_by = u.username
                     WHERE f.parent_id = ? AND f.is_active = 1 
                     ORDER BY f.name""", (parent_id,))
+    else:
+        # 普通用户只能看到有权限的目录
+        accessible_ids = get_user_accessible_folder_ids(user_id, conn)
+        if not accessible_ids:
+            conn.close()
+            return {"folders": []}
+        
+        placeholders = ','.join(['?' for _ in accessible_ids])
+        c.execute(f"""SELECT f.*, u.username as creator_name,
+                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
+                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
+                    FROM folders f 
+                    LEFT JOIN users u ON f.created_by = u.username
+                    WHERE f.parent_id = ? AND f.is_active = 1 AND f.id IN ({placeholders})
+                    ORDER BY f.name""", [parent_id] + accessible_ids)
     
     folders = [dict(row) for row in c.fetchall()]
     conn.close()
@@ -319,23 +618,18 @@ async def list_folders(
     return {"folders": folders}
 
 @app.post("/api/folders")
-async def create_folder(
-    folder: FolderCreate,
-    token_data: dict = Depends(verify_token)
-):
+async def create_folder(folder: FolderCreate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以创建目录")
     
     conn = get_db()
     c = conn.cursor()
     
-    # 检查父目录是否存在
     c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder.parent_id,))
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="父目录不存在")
     
-    # 检查同级目录名是否重复
     c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND is_active = 1",
               (folder.name, folder.parent_id))
     if c.fetchone():
@@ -351,30 +645,23 @@ async def create_folder(
     return {"folder_id": folder_id, "message": "目录创建成功"}
 
 @app.put("/api/folders/{folder_id}")
-async def rename_folder(
-    folder_id: int,
-    folder_update: FolderUpdate,
-    token_data: dict = Depends(verify_token)
-):
+async def rename_folder(folder_id: int, folder_update: FolderUpdate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以重命名目录")
     
     conn = get_db()
     c = conn.cursor()
     
-    # 检查目录是否存在
     c.execute("SELECT id, parent_id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
     folder = c.fetchone()
     if not folder:
         conn.close()
         raise HTTPException(status_code=404, detail="目录不存在")
     
-    # 不能重命名根目录
     if folder_id == 1:
         conn.close()
         raise HTTPException(status_code=400, detail="不能重命名根目录")
     
-    # 检查同级目录名是否重复
     c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND id != ? AND is_active = 1",
               (folder_update.name, folder["parent_id"], folder_id))
     if c.fetchone():
@@ -389,10 +676,7 @@ async def rename_folder(
     return {"message": "目录重命名成功"}
 
 @app.delete("/api/folders/{folder_id}")
-async def delete_folder(
-    folder_id: int,
-    token_data: dict = Depends(verify_token)
-):
+async def delete_folder(folder_id: int, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以删除目录")
     
@@ -402,16 +686,12 @@ async def delete_folder(
     conn = get_db()
     c = conn.cursor()
     
-    # 检查目录是否存在
     c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="目录不存在")
     
-    # 将目录下的文档移到根目录
     c.execute("UPDATE documents SET folder_id = 1 WHERE folder_id = ?", (folder_id,))
-    
-    # 软删除目录
     c.execute("UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (folder_id,))
     conn.commit()
     conn.close()
@@ -431,12 +711,31 @@ async def list_documents(
     conn = get_db()
     c = conn.cursor()
     
-    # 构建查询
-    query = """SELECT d.*, u.username as uploader_name 
-               FROM documents d 
-               LEFT JOIN users u ON d.uploaded_by = u.username
-               WHERE d.is_active = 1"""
-    params = []
+    user_id = token_data.get("user_id")
+    
+    # 管理员可以看到所有文档
+    if token_data.get("role") == "admin":
+        query = """SELECT d.*, u.username as uploader_name 
+                   FROM documents d 
+                   LEFT JOIN users u ON d.uploaded_by = u.username
+                   WHERE d.is_active = 1"""
+        params = []
+    else:
+        # 普通用户只能看到有权限的文档
+        accessible_folder_ids = get_user_accessible_folder_ids(user_id, conn)
+        
+        query = """SELECT d.*, u.username as uploader_name 
+                   FROM documents d 
+                   LEFT JOIN users u ON d.uploaded_by = u.username
+                   WHERE d.is_active = 1"""
+        params = []
+        
+        # 如果没有目录权限，检查直接文档权限
+        if not accessible_folder_ids:
+            query += f""" AND (d.id IN (SELECT document_id FROM user_document_permissions WHERE user_id = ? AND can_read = 1)
+                         OR d.id IN (SELECT document_id FROM group_document_permissions 
+                                     WHERE group_id = (SELECT group_id FROM users WHERE id = ?) AND can_read = 1))"""
+            params.extend([user_id, user_id])
     
     if folder_id is not None:
         query += " AND d.folder_id = ?"
@@ -446,7 +745,6 @@ async def list_documents(
         query += " AND d.original_name LIKE ?"
         params.append(f"%{search}%")
     
-    # 排序
     valid_sort_fields = ["original_name", "file_size", "uploaded_at", "updated_at"]
     if sort_by in valid_sort_fields:
         query += f" ORDER BY d.{sort_by}"
@@ -475,25 +773,22 @@ async def upload_document(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="只支持 PDF 文件")
     
-    # 检查目录是否存在
     conn = get_db()
     c = conn.cursor()
+    
     c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="目标目录不存在")
     
-    # 生成唯一文件名
     file_hash = hashlib.md5(f"{file.filename}{datetime.now()}".encode()).hexdigest()
     filename = f"{file_hash}.pdf"
     file_path = UPLOAD_DIR / filename
     
-    # 保存文件
     content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
     
-    # 记录到数据库
     c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
               (filename, file.filename, len(content), folder_id, token_data["username"]))
     doc_id = c.lastrowid
@@ -506,6 +801,15 @@ async def upload_document(
 async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
+    
+    user_id = token_data.get("user_id")
+    
+    # 检查权限
+    if token_data.get("role") != "admin":
+        if not check_document_permission(user_id, doc_id, conn):
+            conn.close()
+            raise HTTPException(status_code=403, detail="没有权限访问此文档")
+    
     c.execute("SELECT filename, original_name FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
     doc = c.fetchone()
     conn.close()
@@ -521,35 +825,25 @@ async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT INTO access_logs (user_id, username, document_id, action, ip_address) VALUES (?, ?, ?, ?, ?)",
-              (token_data.get("user_id"), token_data["username"], doc_id, "view", "unknown"))
+              (user_id, token_data["username"], doc_id, "view", "unknown"))
     conn.commit()
     conn.close()
     
-    return FileResponse(
-        path=str(file_path),
-        media_type="application/pdf",
-        filename=doc["original_name"]
-    )
+    return FileResponse(path=str(file_path), media_type="application/pdf", filename=doc["original_name"])
 
 @app.delete("/api/documents/{doc_id}")
-async def delete_document(
-    doc_id: int,
-    token_data: dict = Depends(verify_token)
-):
+async def delete_document(doc_id: int, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以删除文档")
     
     conn = get_db()
     c = conn.cursor()
     
-    # 检查文档是否存在
-    c.execute("SELECT id, filename FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
-    doc = c.fetchone()
-    if not doc:
+    c.execute("SELECT id FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="文档不存在")
     
-    # 软删除文档
     c.execute("UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
@@ -557,10 +851,7 @@ async def delete_document(
     return {"message": "文档删除成功"}
 
 @app.post("/api/documents/batch-delete")
-async def batch_delete_documents(
-    batch: BatchDelete,
-    token_data: dict = Depends(verify_token)
-):
+async def batch_delete_documents(batch: BatchDelete, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以删除文档")
     
@@ -570,7 +861,6 @@ async def batch_delete_documents(
     conn = get_db()
     c = conn.cursor()
     
-    # 批量软删除
     placeholders = ','.join(['?' for _ in batch.document_ids])
     c.execute(f"UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
               batch.document_ids)
@@ -581,10 +871,7 @@ async def batch_delete_documents(
     return {"message": f"成功删除 {deleted_count} 个文档"}
 
 @app.post("/api/documents/batch-move")
-async def batch_move_documents(
-    batch: BatchMove,
-    token_data: dict = Depends(verify_token)
-):
+async def batch_move_documents(batch: BatchMove, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以移动文档")
     
@@ -594,13 +881,11 @@ async def batch_move_documents(
     conn = get_db()
     c = conn.cursor()
     
-    # 检查目标目录是否存在
     c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (batch.folder_id,))
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="目标目录不存在")
     
-    # 批量移动
     placeholders = ','.join(['?' for _ in batch.document_ids])
     c.execute(f"UPDATE documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
               [batch.folder_id] + batch.document_ids)
@@ -611,24 +896,18 @@ async def batch_move_documents(
     return {"message": f"成功移动 {moved_count} 个文档"}
 
 @app.put("/api/documents/{doc_id}/move")
-async def move_document(
-    doc_id: int,
-    move: DocumentMove,
-    token_data: dict = Depends(verify_token)
-):
+async def move_document(doc_id: int, move: DocumentMove, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以移动文档")
     
     conn = get_db()
     c = conn.cursor()
     
-    # 检查文档是否存在
     c.execute("SELECT id FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="文档不存在")
     
-    # 检查目标目录是否存在
     c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (move.folder_id,))
     if not c.fetchone():
         conn.close()
@@ -641,17 +920,125 @@ async def move_document(
     
     return {"message": "文档移动成功"}
 
-# ==================== 其他 API ====================
+# ==================== 权限 API ====================
 
-@app.post("/api/fingerprint")
-async def register_fingerprint(
-    fingerprint: DeviceFingerprint,
-    request: Request,
-    token_data: dict = Depends(verify_token)
-):
+@app.get("/api/permissions/{target_type}/{target_id}")
+async def get_permissions(target_type: str, target_id: int, token_data: dict = Depends(verify_token)):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+    
     conn = get_db()
     c = conn.cursor()
     
+    if target_type == "user":
+        # 获取用户的目录权限
+        c.execute("""SELECT fp.folder_id, f.name as folder_name, fp.can_read
+                    FROM user_folder_permissions fp
+                    JOIN folders f ON fp.folder_id = f.id
+                    WHERE fp.user_id = ?""", (target_id,))
+        folder_permissions = [dict(row) for row in c.fetchall()]
+        
+        # 获取用户的文档权限
+        c.execute("""SELECT dp.document_id, d.original_name as document_name, dp.can_read
+                    FROM user_document_permissions dp
+                    JOIN documents d ON dp.document_id = d.id
+                    WHERE dp.user_id = ?""", (target_id,))
+        document_permissions = [dict(row) for row in c.fetchall()]
+        
+    elif target_type == "group":
+        # 获取用户组的目录权限
+        c.execute("""SELECT fp.folder_id, f.name as folder_name, fp.can_read
+                    FROM group_folder_permissions fp
+                    JOIN folders f ON fp.folder_id = f.id
+                    WHERE fp.group_id = ?""", (target_id,))
+        folder_permissions = [dict(row) for row in c.fetchall()]
+        
+        # 获取用户组的文档权限
+        c.execute("""SELECT dp.document_id, d.original_name as document_name, dp.can_read
+                    FROM group_document_permissions dp
+                    JOIN documents d ON dp.document_id = d.id
+                    WHERE dp.group_id = ?""", (target_id,))
+        document_permissions = [dict(row) for row in c.fetchall()]
+    else:
+        conn.close()
+        raise HTTPException(status_code=400, detail="无效的目标类型")
+    
+    conn.close()
+    
+    return {
+        "folder_permissions": folder_permissions,
+        "document_permissions": document_permissions
+    }
+
+@app.post("/api/permissions")
+async def set_permission(permission: PermissionCreate, token_data: dict = Depends(verify_token)):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以设置权限")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    if permission.resource_type == "folder":
+        if permission.target_type == "user":
+            c.execute("""INSERT OR REPLACE INTO user_folder_permissions (user_id, folder_id, can_read)
+                        VALUES (?, ?, ?)""",
+                     (permission.target_id, permission.resource_id, 1 if permission.can_read else 0))
+        elif permission.target_type == "group":
+            c.execute("""INSERT OR REPLACE INTO group_folder_permissions (group_id, folder_id, can_read)
+                        VALUES (?, ?, ?)""",
+                     (permission.target_id, permission.resource_id, 1 if permission.can_read else 0))
+    elif permission.resource_type == "document":
+        if permission.target_type == "user":
+            c.execute("""INSERT OR REPLACE INTO user_document_permissions (user_id, document_id, can_read)
+                        VALUES (?, ?, ?)""",
+                     (permission.target_id, permission.resource_id, 1 if permission.can_read else 0))
+        elif permission.target_type == "group":
+            c.execute("""INSERT OR REPLACE INTO group_document_permissions (group_id, document_id, can_read)
+                        VALUES (?, ?, ?)""",
+                     (permission.target_id, permission.resource_id, 1 if permission.can_read else 0))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "权限设置成功"}
+
+@app.delete("/api/permissions/{target_type}/{target_id}/{resource_type}/{resource_id}")
+async def remove_permission(
+    target_type: str, target_id: int, resource_type: str, resource_id: int,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以删除权限")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    if resource_type == "folder":
+        if target_type == "user":
+            c.execute("DELETE FROM user_folder_permissions WHERE user_id = ? AND folder_id = ?",
+                     (target_id, resource_id))
+        elif target_type == "group":
+            c.execute("DELETE FROM group_folder_permissions WHERE group_id = ? AND folder_id = ?",
+                     (target_id, resource_id))
+    elif resource_type == "document":
+        if target_type == "user":
+            c.execute("DELETE FROM user_document_permissions WHERE user_id = ? AND document_id = ?",
+                     (target_id, resource_id))
+        elif target_type == "group":
+            c.execute("DELETE FROM group_document_permissions WHERE group_id = ? AND document_id = ?",
+                     (target_id, resource_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "权限删除成功"}
+
+# ==================== 其他 API ====================
+
+@app.post("/api/fingerprint")
+async def register_fingerprint(fingerprint: DeviceFingerprint, request: Request, token_data: dict = Depends(verify_token)):
+    conn = get_db()
+    c = conn.cursor()
     ip_address = request.client.host
     
     c.execute("""INSERT OR REPLACE INTO device_fingerprints 
@@ -668,14 +1055,9 @@ async def register_fingerprint(
     return {"message": "指纹已记录"}
 
 @app.post("/api/access-log")
-async def log_access(
-    log: AccessLog,
-    request: Request,
-    token_data: dict = Depends(verify_token)
-):
+async def log_access(log: AccessLog, request: Request, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
-    
     ip_address = request.client.host
     user_agent = request.headers.get("user-agent", "")
     
@@ -694,11 +1076,7 @@ async def log_access(
 # ==================== 管理员 API ====================
 
 @app.get("/api/admin/logs")
-async def get_access_logs(
-    page: int = 1,
-    limit: int = 50,
-    token_data: dict = Depends(verify_token)
-):
+async def get_access_logs(page: int = 1, limit: int = 50, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="无权限")
     
@@ -717,7 +1095,6 @@ async def get_access_logs(
     total = c.fetchone()["total"]
     
     conn.close()
-    
     return {"logs": logs, "total": total, "page": page, "limit": limit}
 
 @app.get("/api/admin/fingerprints")
@@ -730,7 +1107,6 @@ async def get_fingerprints(token_data: dict = Depends(verify_token)):
     c.execute("SELECT * FROM device_fingerprints ORDER BY last_seen DESC")
     fingerprints = [dict(row) for row in c.fetchall()]
     conn.close()
-    
     return {"fingerprints": fingerprints}
 
 @app.get("/api/admin/users")
@@ -740,32 +1116,29 @@ async def get_users(token_data: dict = Depends(verify_token)):
     
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, username, role, is_active, created_at, updated_at, last_login FROM users ORDER BY id")
+    c.execute("""SELECT u.id, u.username, u.role, u.group_id, u.is_active, 
+                u.created_at, u.updated_at, u.last_login,
+                g.name as group_name
+                FROM users u
+                LEFT JOIN user_groups g ON u.group_id = g.id
+                ORDER BY u.id""")
     users = [dict(row) for row in c.fetchall()]
     conn.close()
-    
     return {"users": users}
 
 @app.put("/api/admin/users/{user_id}")
-async def update_user(
-    user_id: int,
-    user_update: UserUpdate,
-    token_data: dict = Depends(verify_token)
-):
+async def update_user(user_id: int, user_update: UserUpdate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="无权限")
     
     conn = get_db()
     c = conn.cursor()
     
-    # 检查用户是否存在
     c.execute("SELECT id, username FROM users WHERE id = ?", (user_id,))
-    user = c.fetchone()
-    if not user:
+    if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="用户不存在")
     
-    # 构建更新语句
     updates = []
     params = []
     
@@ -781,6 +1154,10 @@ async def update_user(
         updates.append("role = ?")
         params.append(user_update.role)
     
+    if user_update.group_id is not None:
+        updates.append("group_id = ?")
+        params.append(user_update.group_id)
+    
     if user_update.is_active is not None:
         updates.append("is_active = ?")
         params.append(1 if user_update.is_active else 0)
@@ -788,23 +1165,17 @@ async def update_user(
     if updates:
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(user_id)
-        
-        sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
-        c.execute(sql, params)
+        c.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
         conn.commit()
     
     conn.close()
     return {"message": "用户更新成功"}
 
 @app.delete("/api/admin/users/{user_id}")
-async def delete_user(
-    user_id: int,
-    token_data: dict = Depends(verify_token)
-):
+async def delete_user(user_id: int, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="无权限")
     
-    # 不能删除自己
     conn = get_db()
     c = conn.cursor()
     

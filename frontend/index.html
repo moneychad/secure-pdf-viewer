@@ -50,6 +50,7 @@
                         <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
                         <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
                         <a href="#" class="nav-item admin-only" data-page="users">👥 用户管理</a>
+                        <a href="#" class="nav-item admin-only" data-page="groups">👪 用户组管理</a>                        <a href="#" class="nav-item admin-only" data-page="permissions">🔐 权限配置</a>
                         <a href="#" class="nav-item" data-page="password">🔑 修改密码</a>
                     </nav>
                 </aside>
@@ -233,6 +234,65 @@
                                 </thead>
                                 <tbody id="users-body"></tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    
+                    <!-- 用户组管理 -->
+                    <div id="page-groups" class="content-page">
+                        <h2>用户组管理</h2>
+                        <div class="user-form">
+                            <h3>创建用户组</h3>
+                            <form id="create-group-form">
+                                <div class="form-row">
+                                    <input type="text" id="new-group-name" placeholder="用户组名称" required>
+                                    <input type="text" id="new-group-desc" placeholder="描述（可选）">
+                                    <button type="submit" class="btn-primary">创建</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="table-container">
+                            <table id="groups-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>组名</th>
+                                        <th>描述</th>
+                                        <th>成员数</th>
+                                        <th>创建时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="groups-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+
+                    <!-- 权限配置 -->
+                    <div id="page-permissions" class="content-page">
+                        <h2>权限配置</h2>
+                        <div class="permission-toolbar">
+                            <div class="permission-selector">
+                                <label>配置对象：</label>
+                                <select id="perm-target-type" onchange="loadPermissionTargets()">
+                                    <option value="user">用户</option>
+                                    <option value="group">用户组</option>
+                                </select>
+                                <select id="perm-target-id"></select>
+                            </div>
+                            <button class="btn-primary" onclick="loadPermissions()">加载权限</button>
+                        </div>
+                        
+                        <div class="permission-section">
+                            <h3>目录权限</h3>
+                            <p class="hint">勾选表示授予读取权限，目录权限会自动继承到子目录和文件</p>
+                            <div class="permission-tree" id="folder-permissions"></div>
+                        </div>
+                        
+                        <div class="permission-section">
+                            <h3>文件权限</h3>
+                            <div class="permission-list" id="document-permissions"></div>
                         </div>
                     </div>
 
