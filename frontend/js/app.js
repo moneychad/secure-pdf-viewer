@@ -1032,36 +1032,6 @@ async function handleCreateUser(e) {
     }
 }
 
-async function editUser(userId) {
-    const newRole = prompt('请输入新角色 (admin/viewer):');
-    if (!newRole || !['admin', 'viewer'].includes(newRole)) {
-        if (newRole !== null) alert('角色只能是 admin 或 viewer');
-        return;
-    }
-    
-    try {
-        const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
-            credentials: 'include',
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ role: newRole })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            alert('用户更新成功');
-            loadUsers();
-        } else {
-            alert(data.detail || '更新失败');
-        }
-    } catch (error) {
-        alert('网络错误，请重试');
-    }
-}
-
 async function toggleUser(userId, currentStatus) {
     const action = currentStatus ? '停用' : '启用';
     if (!confirm(`确定要${action}该用户吗？`)) return;
@@ -1832,4 +1802,149 @@ function removeResourcePermission(resourceType, resourceId, targetType, targetId
             alert(data.detail || '移除失败');
         }
     });
+}
+
+// ==================== 用户编辑弹窗 ====================
+
+async function editUser(userId) {
+    var user = allUsersData.find(function(u) { return u.id === userId; });
+    if (!user) return;
+    
+    // 加载用户组列表
+    var groupsData = [];
+    try {
+        var resp = await fetch(API_BASE + '/groups', { credentials: 'include' });
+        var data = await resp.json();
+        if (data.groups) groupsData = data.groups;
+    } catch (e) {}
+    
+    // 创建或获取弹窗
+    var modal = document.getElementById('edit-user-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'edit-user-modal';
+        modal.className = 'modal';
+        document.body.appendChild(modal);
+    }
+    
+    // 构建用户组选项
+    var groupsOptions = '<option value="">未分组</option>';
+    groupsData.forEach(function(g) {
+        var selected = (user.group_id === g.id) ? ' selected' : '';
+        groupsOptions += '<option value="' + g.id + '"' + selected + '>' + escapeHtml(g.name) + '</option>';
+    });
+    
+    // 构建角色选项
+    var roleAdmin = (user.role === 'admin') ? ' selected' : '';
+    var roleViewer = (user.role !== 'admin') ? ' selected' : '';
+    
+    // 用纯 DOM 创建弹窗内容
+    modal.innerHTML = '';
+    var content = document.createElement('div');
+    content.className = 'modal-content';
+    content.style.minWidth = '400px';
+    
+    var title = document.createElement('h3');
+    title.textContent = '编辑用户: ' + user.username;
+    content.appendChild(title);
+    
+    // 用户名
+    var nameGroup = document.createElement('div');
+    nameGroup.className = 'form-group';
+    var nameLabel = document.createElement('label');
+    nameLabel.textContent = '用户名';
+    nameGroup.appendChild(nameLabel);
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.id = 'edit-username';
+    nameInput.value = user.username;
+    nameGroup.appendChild(nameInput);
+    content.appendChild(nameGroup);
+    
+    // 角色
+    var roleGroup = document.createElement('div');
+    roleGroup.className = 'form-group';
+    var roleLabel = document.createElement('label');
+    roleLabel.textContent = '角色';
+    roleGroup.appendChild(roleLabel);
+    var roleSelect = document.createElement('select');
+    roleSelect.id = 'edit-role';
+    roleSelect.innerHTML = '<option value="admin"' + roleAdmin + '>管理员</option><option value="viewer"' + roleViewer + '>普通用户</option>';
+    roleGroup.appendChild(roleSelect);
+    content.appendChild(roleGroup);
+    
+    // 用户组
+    var groupGroup = document.createElement('div');
+    groupGroup.className = 'form-group';
+    var groupLabel = document.createElement('label');
+    groupLabel.textContent = '用户组';
+    groupGroup.appendChild(groupLabel);
+    var groupSelect = document.createElement('select');
+    groupSelect.id = 'edit-group';
+    groupSelect.innerHTML = groupsOptions;
+    groupGroup.appendChild(groupSelect);
+    content.appendChild(groupGroup);
+    
+    // 按钮
+    var actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', function() {
+        closeModal('edit-user-modal');
+    });
+    actions.appendChild(cancelBtn);
+    
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn-primary';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', function() {
+        saveEditUser(userId);
+    });
+    actions.appendChild(saveBtn);
+    
+    content.appendChild(actions);
+    modal.appendChild(content);
+    
+    modal.classList.remove('hidden');
+}
+
+async function saveEditUser(userId) {
+    var username = document.getElementById('edit-username').value.trim();
+    var role = document.getElementById('edit-role').value;
+    var groupId = document.getElementById('edit-group').value;
+    
+    if (!username) {
+        alert('请输入用户名');
+        return;
+    }
+    
+    var body = {
+        username: username,
+        role: role,
+        group_id: groupId ? parseInt(groupId) : null
+    };
+    
+    try {
+        var response = await fetch(API_BASE + '/admin/users/' + userId, {
+            credentials: 'include',
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        
+        var data = await response.json();
+        
+        if (response.ok) {
+            closeModal('edit-user-modal');
+            loadUsers();
+            alert('用户更新成功');
+        } else {
+            alert(data.detail || '修改失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
 }

@@ -666,9 +666,16 @@ async def list_groups(token_data: dict = Depends(verify_token)):
     c.execute("""SELECT g.*, 
                 (SELECT COUNT(*) FROM users WHERE group_id = g.id AND is_active = 1) as member_count
                 FROM user_groups g ORDER BY g.name""")
-    groups = [dict(row) for row in c.fetchall()]
-    conn.close()
     
+    groups = []
+    for row in c.fetchall():
+        group = dict(row)
+        c.execute("""SELECT username FROM users WHERE group_id = ? AND is_active = 1 ORDER BY username""", (group["id"],))
+        members = [r["username"] for r in c.fetchall()]
+        group["member_names"] = ", ".join(members) if members else ""
+        groups.append(group)
+    
+    conn.close()
     return {"groups": groups}
 
 @app.post("/api/groups")
