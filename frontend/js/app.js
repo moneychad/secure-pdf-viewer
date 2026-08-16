@@ -255,6 +255,7 @@ function renderFileList(folders, documents) {
                 <td class="col-time">${formatDate(doc.updated_at)}</td>
                 <td class="col-actions admin-only">
                     <button class="btn-action btn-move" onclick="showMoveDocModal(${doc.id})" title="移动">📁</button>
+                    <button class="btn-action btn-move" onclick="showPermissionModal('document', ${doc.id}, '${escapeHtml(doc.original_name)}')" title="权限">🔐</button>
                     <button class="btn-action btn-delete" onclick="deleteDocument(${doc.id})" title="删除">🗑️</button>
                 </td>
             </tr>
