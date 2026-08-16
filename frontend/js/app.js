@@ -111,6 +111,11 @@ function bindEvents() {
         });
     }
     
+    // 修改密码表单
+    const changePasswordForm = document.getElementById("change-password-form");
+    if (changePasswordForm) {
+        changePasswordForm.addEventListener("submit", handleChangePassword);
+    }
     // 创建用户表单
     const createUserForm = document.getElementById('create-user-form');
     if (createUserForm) {
@@ -687,4 +692,54 @@ function formatDate(dateStr) {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleString('zh-CN');
+}
+
+
+// 修改密码
+async function handleChangePassword(e) {
+    e.preventDefault();
+    
+    const oldPassword = document.getElementById('old-password').value;
+    const newPassword = document.getElementById('new-password-change').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    
+    if (!oldPassword || !newPassword || !confirmPassword) {
+        alert('请填写所有字段');
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        alert('两次输入的新密码不一致');
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        alert('新密码长度至少6位');
+        return;
+    }
+    
+    try {
+        const response = await fetch(API_BASE + '/change-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + authToken
+            },
+            body: JSON.stringify({
+                old_password: oldPassword,
+                new_password: newPassword
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('密码修改成功，请重新登录');
+            handleLogout();
+        } else {
+            alert(data.detail || '修改失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
 }

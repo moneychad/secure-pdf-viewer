@@ -374,3 +374,34 @@ async def health_check():
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+@app.post("/api/change-password")
+async def change_password(
+    passwords: ChangePassword,
+    token_data: dict = Depends(verify_token)
+):
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 验证旧密码
+    old_hash = hash_password(passwords.old_password)
+    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
+              (token_data["username"], old_hash))
+    
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="旧密码错误")
+    
+    # 更新密码
+    new_hash = hash_password(passwords.new_password)
+    c.execute("UPDATE users SET password_hash = ? WHERE username = ?",
+              (new_hash, token_data["username"]))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "密码修改成功"}
