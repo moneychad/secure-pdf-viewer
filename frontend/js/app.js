@@ -160,11 +160,38 @@ function showMainPage() {
 }
 
 function showPage(pageName) {
-    document.querySelectorAll('.content-page').forEach(page => page.classList.remove('active'));
-    const targetPage = document.getElementById(`page-${pageName}`);
+    // 记录停留时间（如果正在查看文档，且要离开 viewer 页面）
+    if (pageName !== 'viewer' && pageStartTime && currentDocument) {
+        var duration = Math.floor((Date.now() - pageStartTime) / 1000);
+        if (duration > 0) {
+            // 使用同步 XHR 确保数据发送
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", API_BASE + "/access-log", false);
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.withCredentials = true;
+                xhr.send(JSON.stringify({
+                    document_id: currentDocument.id,
+                    action: "view",
+                    page_number: currentPage,
+                    device_fingerprint: currentFingerprintHash || "unknown",
+                    duration_seconds: duration
+                }));
+                console.log("停留时间已记录: " + duration + "秒");
+            } catch (e) {
+                console.error("记录停留时间失败:", e);
+            }
+        }
+        // 重置状态
+        pageStartTime = null;
+        currentDocument = null;
+    }
+    
+    document.querySelectorAll('.content-page').forEach(function(page) { page.classList.remove('active'); });
+    var targetPage = document.getElementById('page-' + pageName);
     if (targetPage) targetPage.classList.add('active');
     
-    document.querySelectorAll('.nav-item').forEach(item => {
+    document.querySelectorAll('.nav-item').forEach(function(item) {
         item.classList.remove('active');
         if (item.dataset.page === pageName) item.classList.add('active');
     });
@@ -175,6 +202,9 @@ function showPage(pageName) {
         case 'fingerprints': loadFingerprints(); break;
         case 'users': loadUsers(); break;
         case 'upload': loadFolderSelect(); break;
+        case 'groups': loadGroups(); break;
+        case 'permissions': loadPermissionTargets(); break;
+        case 'audit-logs': loadAuditLogs(); break;
     }
 }
 
@@ -643,8 +673,31 @@ async function uploadFiles(files) {
 // ==================== 文档查看 ====================
 
 async function viewDocument(docId, docName) {
+    // 如果之前在查看文档，先记录停留时间
+    if (pageStartTime && currentDocument) {
+        var prevDuration = Math.floor((Date.now() - pageStartTime) / 1000);
+        if (prevDuration > 0) {
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", API_BASE + "/access-log", false);
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.withCredentials = true;
+                xhr.send(JSON.stringify({
+                    document_id: currentDocument.id,
+                    action: "view",
+                    page_number: currentPage,
+                    device_fingerprint: currentFingerprintHash || "unknown",
+                    duration_seconds: prevDuration
+                }));
+            } catch (e) {
+                console.error("记录停留时间失败:", e);
+            }
+        }
+    }
+    
     currentDocument = { id: docId, name: docName };
     currentPage = 1;
+    pageStartTime = Date.now();  // 设置开始时间
     
     document.getElementById('viewer-doc-name').textContent = docName;
     showPage('viewer');
