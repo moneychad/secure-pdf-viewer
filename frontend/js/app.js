@@ -874,7 +874,10 @@ function renderLogs(logs, total, page, limit) {
         <tr>
             <td>${formatDate(log.timestamp)}</td>
             <td>${escapeHtml(log.username)}</td>
-            <td>${escapeHtml(log.original_name || '-')}</td>
+            <td>
+                ${escapeHtml(log.original_name || '-')}
+                ${log.file_path ? `<span class="path-badge" onclick="showPathModal('${escapeHtml(log.file_path)}')" title="点击查看完整路径">📁</span>` : ''}
+            </td>
             <td>${actionMap[log.action] || log.action}</td>
             <td>${log.page_number || '-'}</td>
             <td>${log.duration_seconds > 0 ? log.duration_seconds + '秒' : '-'}</td>
@@ -1680,4 +1683,38 @@ function saveBatchPermissions() {
             alert(data.detail || '配置失败');
         }
     });
+}
+
+
+// ==================== 文件路径弹窗 ====================
+
+function showPathModal(filePath) {
+    // 创建弹窗
+    var modal = document.getElementById('path-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'path-modal';
+        modal.className = 'modal';
+        modal.innerHTML = '<div class="modal-content" style="min-width: 500px;">' +
+            '<h3>文件完整路径</h3>' +
+            '<div class="path-display">' +
+                '<input type="text" id="path-input" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace;">' +
+            '</div>' +
+            '<div class="modal-actions">' +
+                '<button class="btn-secondary" onclick="closeModal(\"path-modal\")">关闭</button>' +
+                '<button class="btn-primary" onclick="copyPath()">📋 复制路径</button>' +
+            '</div>' +
+        '</div>';
+        document.body.appendChild(modal);
+    }
+    
+    document.getElementById('path-input').value = filePath;
+    modal.classList.remove('hidden');
+}
+
+function copyPath() {
+    var pathInput = document.getElementById('path-input');
+    pathInput.select();
+    document.execCommand('copy');
+    alert('路径已复制到剪贴板');
 }

@@ -989,3 +989,30 @@ tr:hover {
 .perm-column .search-result-item:last-child {
     border-bottom: none;
 }
+
+/* 文件路径角标 */
+.path-badge {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 2px 6px;
+    background: #e3f2fd;
+    color: #1976d2;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.path-badge:hover {
+    background: #bbdefb;
+}
+
+.path-display {
+    margin: 15px 0;
+}
+
+.path-display input {
+    font-size: 14px;
+    color: #333;
+    background: #f5f5f5;
+}

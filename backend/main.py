@@ -1347,12 +1347,16 @@ async def get_access_logs(page: int = 1, limit: int = 50, token_data: dict = Dep
     c = conn.cursor()
     
     offset = (page - 1) * limit
-    c.execute("""SELECT al.*, d.original_name 
+    c.execute("""SELECT al.*, d.original_name, d.folder_id
                 FROM access_logs al 
                 LEFT JOIN documents d ON al.document_id = d.id 
                 ORDER BY al.timestamp DESC 
                 LIMIT ? OFFSET ?""", (limit, offset))
-    logs = [dict(row) for row in c.fetchall()]
+    logs = []
+    for row in c.fetchall():
+        log = dict(row)
+        log["file_path"] = get_file_path(conn, log["document_id"]) if log["document_id"] else ""
+        logs.append(log)
     
     c.execute("SELECT COUNT(*) as total FROM access_logs")
     total = c.fetchone()["total"]
