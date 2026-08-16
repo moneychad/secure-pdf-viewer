@@ -4,7 +4,7 @@
 
 // 全局变量
 let currentUser = null;
-let 
+let authToken = null;
 let currentDocument = null;
 let currentPage = 1;
 let totalPages = 0;
@@ -91,7 +91,9 @@ async function handleLogin(e) {
     
     try {
         const response = await fetch(`${API_BASE}/login`, {
+            credentials: 'include',
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
@@ -186,12 +188,14 @@ async function loadDocuments() {
     try {
         // 加载当前目录的子目录
         const foldersResponse = await fetch(`${API_BASE}/folders?parent_id=${currentFolderId}`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const foldersData = await foldersResponse.json();
         
         // 加载当前目录的文档
         const docsResponse = await fetch(`${API_BASE}/documents?folder_id=${currentFolderId}&search=${search}&sort_by=${sortBy}&sort_order=${sortOrder}`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         const docsData = await docsResponse.json();
@@ -326,6 +330,7 @@ async function createFolder() {
     
     try {
         const response = await fetch(`${API_BASE}/folders`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -354,6 +359,7 @@ async function renameFolder() {
     
     try {
         const response = await fetch(`${API_BASE}/folders/${folderId}`, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -380,6 +386,7 @@ async function deleteFolder(folderId) {
     
     try {
         const response = await fetch(`${API_BASE}/folders/${folderId}`, {
+            credentials: 'include',
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -441,6 +448,7 @@ async function deleteDocument(docId) {
     
     try {
         const response = await fetch(`${API_BASE}/documents/${docId}`, {
+            credentials: 'include',
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -462,6 +470,7 @@ async function batchDelete() {
     
     try {
         const response = await fetch(`${API_BASE}/documents/batch-delete`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -500,6 +509,7 @@ async function moveDocument() {
     
     try {
         const response = await fetch(`${API_BASE}/documents/${docId}/move`, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -526,6 +536,7 @@ async function batchMove() {
     
     try {
         const response = await fetch(`${API_BASE}/documents/batch-move`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -554,6 +565,7 @@ async function batchMove() {
 async function loadFolderOptions(selectId) {
     try {
         const response = await fetch(`${API_BASE}/folders`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -602,6 +614,7 @@ async function uploadFiles(files) {
         
         try {
             const response = await fetch(`${API_BASE}/documents/upload?folder_id=${folderId}`, {
+                credentials: 'include',
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${authToken}` },
                 body: formData
@@ -642,6 +655,7 @@ async function viewDocument(docId, docName) {
     
     try {
         const response = await fetch(`${API_BASE}/documents/${docId}/view`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -737,6 +751,7 @@ async function registerFingerprint() {
         const fingerprintData = await fingerprinter.collect();
         
         await fetch(`${API_BASE}/fingerprint`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -752,6 +767,7 @@ async function registerFingerprint() {
 async function logAccess(docId, action, pageNum = null, duration = 0) {
     try {
         await fetch(`${API_BASE}/access-log`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -773,6 +789,7 @@ async function logAccess(docId, action, pageNum = null, duration = 0) {
 async function loadAccessLogs(page = 1) {
     try {
         const response = await fetch(`${API_BASE}/admin/logs?page=${page}&limit=50`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -819,6 +836,7 @@ function renderLogs(logs, total, page, limit) {
 async function loadFingerprints() {
     try {
         const response = await fetch(`${API_BASE}/admin/fingerprints`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -874,6 +892,7 @@ function renderFingerprints(fingerprints) {
 async function loadUsers() {
     try {
         const response = await fetch(`${API_BASE}/admin/users`, {
+            credentials: 'include',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -930,6 +949,7 @@ async function handleCreateUser(e) {
     
     try {
         const response = await fetch(`${API_BASE}/register`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -962,6 +982,7 @@ async function editUser(userId) {
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -989,6 +1010,7 @@ async function toggleUser(userId, currentStatus) {
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1021,6 +1043,7 @@ async function resetPassword(userId) {
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1046,6 +1069,7 @@ async function deleteUser(userId) {
     
     try {
         const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            credentials: 'include',
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -1078,6 +1102,7 @@ async function handleChangePassword(e) {
     
     try {
         const response = await fetch(`${API_BASE}/change-password`, {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1203,6 +1228,7 @@ async function modalUploadFiles(files) {
         
         try {
             const response = await fetch(API_BASE + '/documents/upload?folder_id=' + currentFolderId, {
+                credentials: 'include',
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + authToken },
                 body: formData
