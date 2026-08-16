@@ -1119,3 +1119,93 @@ function formatDate(dateStr) {
     const date = new Date(dateStr);
     return date.toLocaleString('zh-CN');
 }
+
+
+// ==================== 弹窗上传功能 ====================
+
+function showUploadModal() {
+    // 更新目标目录信息
+    const folderName = getCurrentFolderName();
+    document.getElementById('upload-target-info').textContent = '目标目录：' + folderName;
+    document.getElementById('modal-upload-status').innerHTML = '';
+    document.getElementById('upload-modal').classList.remove('hidden');
+    
+    // 绑定事件
+    const fileInput = document.getElementById('modal-file-input');
+    fileInput.onchange = function() {
+        if (this.files.length > 0) {
+            modalUploadFiles(this.files);
+        }
+    };
+    
+    const dropZone = document.getElementById('modal-drop-zone');
+    dropZone.ondragover = function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#e74c3c';
+    };
+    dropZone.ondragleave = function() {
+        this.style.borderColor = '#3498db';
+    };
+    dropZone.ondrop = function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#3498db';
+        if (e.dataTransfer.files.length > 0) {
+            modalUploadFiles(e.dataTransfer.files);
+        }
+    };
+}
+
+function getCurrentFolderName() {
+    if (folderPath.length === 0) {
+        return '根目录';
+    }
+    return folderPath[folderPath.length - 1].name;
+}
+
+async function modalUploadFiles(files) {
+    const statusEl = document.getElementById('modal-upload-status');
+    let successCount = 0;
+    let failCount = 0;
+    
+    statusEl.innerHTML = '<span style=color:#3498db>上传中...</span>';
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            failCount++;
+            continue;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        try {
+            const response = await fetch(API_BASE + '/documents/upload?folder_id=' + currentFolderId, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken },
+                body: formData
+            });
+            
+            if (response.ok) {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (error) {
+            failCount++;
+        }
+    }
+    
+    let message = '上传完成：' + successCount + ' 个成功';
+    if (failCount > 0) message += '，' + failCount + ' 个失败';
+    
+    statusEl.innerHTML = '<span style=color: + (failCount > 0 ? #e74c3c : #27ae60) + >' + message + '</span>';
+    
+    if (successCount > 0) {
+        loadDocuments();
+    }
+    
+    // 清空文件输入
+    document.getElementById('modal-file-input').value = '';
+}

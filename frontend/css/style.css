@@ -685,3 +685,25 @@ tr:hover {
         width: 100%;
     }
 }
+
+/* 上传目标信息 */
+.upload-target-info {
+    padding: 10px;
+    background: #e3f2fd;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    color: #1976d2;
+    font-weight: 500;
+}
+
+/* 弹窗内上传区域 */
+.modal .upload-area {
+    padding: 40px;
+    margin: 15px 0;
+}
+
+#modal-upload-status {
+    margin-top: 15px;
+    text-align: center;
+    min-height: 24px;
+}

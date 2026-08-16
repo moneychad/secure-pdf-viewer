@@ -325,5 +325,25 @@
 
     <script src="/js/fingerprint.js"></script>
     <script src="/js/app.js"></script>
+
+    <!-- 上传文档弹窗 -->
+    <div id="upload-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>上传文档到当前目录</h3>
+            <p class="upload-target-info" id="upload-target-info">目标目录：根目录</p>
+            <div class="upload-area" id="modal-drop-zone">
+                <p>📄 拖拽 PDF 文件到此处</p>
+                <p>或</p>
+                <input type="file" id="modal-file-input" accept=".pdf" multiple hidden>
+                <button type="button" class="btn-primary" onclick="document.getElementById('modal-file-input').click()">
+                    选择文件
+                </button>
+            </div>
+            <div id="modal-upload-status"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('upload-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
