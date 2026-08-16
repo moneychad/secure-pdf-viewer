@@ -41,7 +41,6 @@ function bindEvents() {
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', handleLogin);
-        console.log('登录表单已绑定');
     }
     
     // 退出按钮
@@ -111,22 +110,22 @@ function bindEvents() {
         });
     }
     
-    // 修改密码表单
-    const changePasswordForm = document.getElementById("change-password-form");
-    if (changePasswordForm) {
-        changePasswordForm.addEventListener("submit", handleChangePassword);
-    }
     // 创建用户表单
     const createUserForm = document.getElementById('create-user-form');
     if (createUserForm) {
         createUserForm.addEventListener('submit', handleCreateUser);
+    }
+    
+    // 修改密码表单
+    const changePasswordForm = document.getElementById('change-password-form');
+    if (changePasswordForm) {
+        changePasswordForm.addEventListener('submit', handleChangePassword);
     }
 }
 
 // 登录处理
 async function handleLogin(e) {
     e.preventDefault();
-    console.log('开始登录...');
     
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
@@ -144,7 +143,6 @@ async function handleLogin(e) {
         });
         
         const data = await response.json();
-        console.log('登录响应:', response.status);
         
         if (response.ok) {
             authToken = data.token;
@@ -153,8 +151,6 @@ async function handleLogin(e) {
             // 保存到本地存储
             localStorage.setItem('token', authToken);
             localStorage.setItem('user', JSON.stringify(currentUser));
-            
-            console.log('登录成功，用户:', currentUser.username);
             
             // 注册设备指纹（后台执行，不阻塞）
             registerFingerprint().catch(e => console.error('指纹注册失败:', e));
@@ -165,7 +161,6 @@ async function handleLogin(e) {
             showError('login-error', data.detail || '登录失败');
         }
     } catch (error) {
-        console.error('登录错误:', error);
         showError('login-error', '网络错误，请重试');
     }
 }
@@ -580,6 +575,8 @@ function renderFingerprints(fingerprints) {
     }).join('');
 }
 
+// ==================== 用户管理 ====================
+
 // 加载用户列表
 async function loadUsers() {
     try {
@@ -602,7 +599,7 @@ function renderUsers(users) {
     const tbody = document.getElementById('users-body');
     
     if (!users || users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">暂无用户</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">暂无用户</td></tr>';
         return;
     }
     
@@ -610,8 +607,22 @@ function renderUsers(users) {
         <tr>
             <td>${user.id}</td>
             <td>${escapeHtml(user.username)}</td>
-            <td>${user.role}</td>
+            <td>${user.role === 'admin' ? '管理员' : '普通用户'}</td>
+            <td>${user.is_active ? '<span style="color:green">启用</span>' : '<span style="color:red">停用</span>'}</td>
             <td>${formatDate(user.created_at)}</td>
+            <td>${formatDate(user.updated_at)}</td>
+            <td>${formatDate(user.last_login)}</td>
+            <td>
+                <button class="btn-action btn-edit" onclick="editUser(${user.id})" title="编辑">✏️</button>
+                <button class="btn-action btn-toggle" onclick="toggleUser(${user.id}, ${user.is_active})" title="${user.is_active ? '停用' : '启用'}">
+                    ${user.is_active ? '🚫' : '✅'}
+                </button>
+                <button class="btn-action btn-reset" onclick="resetPassword(${user.id})" title="重置密码">🔑</button>
+                ${user.username !== currentUser.username ? 
+                    `<button class="btn-action btn-delete" onclick="deleteUser(${user.id})" title="删除">🗑️</button>` : 
+                    ''
+                }
+            </td>
         </tr>
     `).join('');
 }
@@ -622,6 +633,7 @@ async function handleCreateUser(e) {
     
     const username = document.getElementById('new-username').value;
     const password = document.getElementById('new-password').value;
+    const role = document.getElementById('new-role').value;
     
     if (!username || !password) {
         alert('请输入用户名和密码');
@@ -635,7 +647,7 @@ async function handleCreateUser(e) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${authToken}`
             },
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify({ username, password, role })
         });
         
         const data = await response.json();
@@ -647,6 +659,181 @@ async function handleCreateUser(e) {
             loadUsers();
         } else {
             alert(data.detail || '创建失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// 编辑用户
+async function editUser(userId) {
+    const newRole = prompt('请输入新角色 (admin/viewer):');
+    if (!newRole || !['admin', 'viewer'].includes(newRole)) {
+        if (newRole !== null) {
+            alert('角色只能是 admin 或 viewer');
+        }
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ role: newRole })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('用户更新成功');
+            loadUsers();
+        } else {
+            alert(data.detail || '更新失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// 切换用户状态（启用/停用）
+async function toggleUser(userId, currentStatus) {
+    const action = currentStatus ? '停用' : '启用';
+    if (!confirm(`确定要${action}该用户吗？`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ is_active: !currentStatus })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert(`用户已${action}`);
+            loadUsers();
+        } else {
+            alert(data.detail || '操作失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// 重置密码
+async function resetPassword(userId) {
+    const newPassword = prompt('请输入新密码（至少6位）:');
+    if (!newPassword) {
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        alert('密码长度至少6位');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ password: newPassword })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('密码重置成功');
+        } else {
+            alert(data.detail || '重置失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// 删除用户
+async function deleteUser(userId) {
+    if (!confirm('确定要删除该用户吗？此操作不可恢复！')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('用户已删除');
+            loadUsers();
+        } else {
+            alert(data.detail || '删除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// ==================== 修改密码 ====================
+
+// 修改密码
+async function handleChangePassword(e) {
+    e.preventDefault();
+    
+    const oldPassword = document.getElementById('old-password').value;
+    const newPassword = document.getElementById('new-password-change').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    
+    if (!oldPassword || !newPassword || !confirmPassword) {
+        alert('请填写所有字段');
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        alert('两次输入的新密码不一致');
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        alert('新密码长度至少6位');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/change-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                old_password: oldPassword,
+                new_password: newPassword
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('密码修改成功，请重新登录');
+            handleLogout();
+        } else {
+            alert(data.detail || '修改失败');
         }
     } catch (error) {
         alert('网络错误，请重试');
@@ -692,54 +879,4 @@ function formatDate(dateStr) {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleString('zh-CN');
-}
-
-
-// 修改密码
-async function handleChangePassword(e) {
-    e.preventDefault();
-    
-    const oldPassword = document.getElementById('old-password').value;
-    const newPassword = document.getElementById('new-password-change').value;
-    const confirmPassword = document.getElementById('confirm-password').value;
-    
-    if (!oldPassword || !newPassword || !confirmPassword) {
-        alert('请填写所有字段');
-        return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-        alert('两次输入的新密码不一致');
-        return;
-    }
-    
-    if (newPassword.length < 6) {
-        alert('新密码长度至少6位');
-        return;
-    }
-    
-    try {
-        const response = await fetch(API_BASE + '/change-password', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + authToken
-            },
-            body: JSON.stringify({
-                old_password: oldPassword,
-                new_password: newPassword
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            alert('密码修改成功，请重新登录');
-            handleLogout();
-        } else {
-            alert(data.detail || '修改失败');
-        }
-    } catch (error) {
-        alert('网络错误，请重试');
-    }
 }

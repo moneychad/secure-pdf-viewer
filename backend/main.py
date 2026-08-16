@@ -7,7 +7,7 @@ import os
 import json
 import hashlib
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -53,7 +53,10 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT DEFAULT 'viewer',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        is_active BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
     )''')
     
     # 文档表
@@ -100,8 +103,8 @@ def init_db():
     
     # 创建默认管理员
     admin_hash = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
-    c.execute("INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-              (ADMIN_USERNAME, admin_hash, "admin"))
+    c.execute("INSERT OR IGNORE INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
+              (ADMIN_USERNAME, admin_hash, "admin", 1))
     
     conn.commit()
     conn.close()
@@ -112,6 +115,21 @@ init_db()
 class UserLogin(BaseModel):
     username: str
     password: str
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
 
 class DeviceFingerprint(BaseModel):
     fingerprint_hash: str
@@ -137,7 +155,7 @@ def create_token(username: str, role: str) -> str:
     payload = {
         "username": username,
         "role": role,
-        "exp": datetime.utcnow().timestamp() + 86400  # 24小时
+        "exp": datetime.now(timezone.utc).timestamp() + 86400  # 24小时
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
@@ -155,18 +173,28 @@ def get_db():
 
 # API 路由
 @app.post("/api/login")
-async def login(user: UserLogin):
+async def login(user: UserLogin, request: Request):
     conn = get_db()
     c = conn.cursor()
     
     password_hash = hash_password(user.password)
-    c.execute("SELECT id, username, role FROM users WHERE username = ? AND password_hash = ?",
+    c.execute("SELECT id, username, role, is_active FROM users WHERE username = ? AND password_hash = ?",
               (user.username, password_hash))
     user_data = c.fetchone()
-    conn.close()
     
     if not user_data:
+        conn.close()
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    
+    if not user_data["is_active"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="账号已被停用，请联系管理员")
+    
+    # 更新最后登录时间
+    ip_address = request.client.host
+    c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
+    conn.commit()
+    conn.close()
     
     token = create_token(user_data["username"], user_data["role"])
     return {
@@ -179,7 +207,7 @@ async def login(user: UserLogin):
     }
 
 @app.post("/api/register")
-async def register(user: UserLogin, token_data: dict = Depends(verify_token)):
+async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以创建用户")
     
@@ -188,8 +216,8 @@ async def register(user: UserLogin, token_data: dict = Depends(verify_token)):
     
     password_hash = hash_password(user.password)
     try:
-        c.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                  (user.username, password_hash))
+        c.execute("INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
+                  (user.username, password_hash, user.role, 1))
         conn.commit()
         conn.close()
         return {"message": "用户创建成功"}
@@ -315,6 +343,32 @@ async def log_access(
     
     return {"message": "日志已记录"}
 
+@app.post("/api/change-password")
+async def change_password(
+    passwords: ChangePassword,
+    token_data: dict = Depends(verify_token)
+):
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 验证旧密码
+    old_hash = hash_password(passwords.old_password)
+    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
+              (token_data["username"], old_hash))
+    
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="旧密码错误")
+    
+    # 更新密码
+    new_hash = hash_password(passwords.new_password)
+    c.execute("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+              (new_hash, token_data["username"]))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "密码修改成功"}
+
 @app.get("/api/admin/logs")
 async def get_access_logs(
     page: int = 1,
@@ -362,47 +416,93 @@ async def get_users(token_data: dict = Depends(verify_token)):
     
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, username, role, created_at FROM users")
+    c.execute("SELECT id, username, role, is_active, created_at, updated_at, last_login FROM users ORDER BY id")
     users = [dict(row) for row in c.fetchall()]
     conn.close()
     
     return {"users": users}
 
-@app.get("/api/health")
-async def health_check():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
-
-class ChangePassword(BaseModel):
-    old_password: str
-    new_password: str
-
-@app.post("/api/change-password")
-async def change_password(
-    passwords: ChangePassword,
+@app.put("/api/admin/users/{user_id}")
+async def update_user(
+    user_id: int,
+    user_update: UserUpdate,
     token_data: dict = Depends(verify_token)
 ):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+    
     conn = get_db()
     c = conn.cursor()
     
-    # 验证旧密码
-    old_hash = hash_password(passwords.old_password)
-    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
-              (token_data["username"], old_hash))
-    
-    if not c.fetchone():
+    # 检查用户是否存在
+    c.execute("SELECT id, username FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    if not user:
         conn.close()
-        raise HTTPException(status_code=400, detail="旧密码错误")
+        raise HTTPException(status_code=404, detail="用户不存在")
     
-    # 更新密码
-    new_hash = hash_password(passwords.new_password)
-    c.execute("UPDATE users SET password_hash = ? WHERE username = ?",
-              (new_hash, token_data["username"]))
+    # 构建更新语句
+    updates = []
+    params = []
+    
+    if user_update.username is not None:
+        updates.append("username = ?")
+        params.append(user_update.username)
+    
+    if user_update.password is not None:
+        updates.append("password_hash = ?")
+        params.append(hash_password(user_update.password))
+    
+    if user_update.role is not None:
+        updates.append("role = ?")
+        params.append(user_update.role)
+    
+    if user_update.is_active is not None:
+        updates.append("is_active = ?")
+        params.append(1 if user_update.is_active else 0)
+    
+    if updates:
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(user_id)
+        
+        sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+        c.execute(sql, params)
+        conn.commit()
+    
+    conn.close()
+    return {"message": "用户更新成功"}
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+    
+    # 不能删除自己
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT id, username FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    if user["username"] == token_data["username"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    
+    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
     
-    return {"message": "密码修改成功"}
+    return {"message": "用户删除成功"}
 
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

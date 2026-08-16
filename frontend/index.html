@@ -150,6 +150,10 @@
                                 <div class="form-row">
                                     <input type="text" id="new-username" placeholder="用户名" required>
                                     <input type="password" id="new-password" placeholder="密码" required>
+                                    <select id="new-role">
+                                        <option value="viewer">普通用户</option>
+                                        <option value="admin">管理员</option>
+                                    </select>
                                     <button type="submit" class="btn-primary">创建</button>
                                 </div>
                             </form>
@@ -161,7 +165,11 @@
                                         <th>ID</th>
                                         <th>用户名</th>
                                         <th>角色</th>
+                                        <th>状态</th>
                                         <th>创建时间</th>
+                                        <th>修改时间</th>
+                                        <th>上次登录</th>
+                                        <th>操作</th>
                                     </tr>
                                 </thead>
                                 <tbody id="users-body"></tbody>
@@ -190,7 +198,7 @@
                             </form>
                         </div>
                     </div>
-                </main}
+                </main>
             </div>
         </div>
     </div>
