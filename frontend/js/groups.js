@@ -10,7 +10,6 @@ let allGroups = [];
 async function loadGroups() {
     try {
         const response = await fetch(API_BASE + '/groups', {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         const data = await response.json();
@@ -58,10 +57,10 @@ async function createGroup(e) {
     
     try {
         const response = await fetch(API_BASE + '/groups', {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + authToken
             },
             body: JSON.stringify({ name: name, description: desc })
         });
@@ -89,10 +88,10 @@ async function editGroup(groupId) {
     
     try {
         const response = await fetch(API_BASE + '/groups/' + groupId, {
+            credentials: 'include',
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + authToken
             },
             body: JSON.stringify({ name: newName })
         });
@@ -114,8 +113,8 @@ async function deleteGroup(groupId) {
     
     try {
         const response = await fetch(API_BASE + '/groups/' + groupId, {
+            credentials: 'include',
             method: 'DELETE',
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         const data = await response.json();
@@ -136,7 +135,6 @@ async function showGroupMembers(groupId) {
     
     try {
         const response = await fetch(API_BASE + '/groups/' + groupId + '/members', {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         const data = await response.json();
@@ -164,7 +162,6 @@ async function showGroupMembers(groupId) {
 async function addGroupMember(username, groupId) {
     try {
         const response = await fetch(API_BASE + '/admin/users', {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         const data = await response.json();
@@ -177,10 +174,10 @@ async function addGroupMember(username, groupId) {
             }
             
             const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
+                credentials: 'include',
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + authToken
                 },
                 body: JSON.stringify({ group_id: groupId })
             });
@@ -201,7 +198,6 @@ async function addGroupMember(username, groupId) {
 async function removeGroupMember(username) {
     try {
         const response = await fetch(API_BASE + '/admin/users', {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         const data = await response.json();
@@ -214,10 +210,10 @@ async function removeGroupMember(username) {
             }
             
             const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
+                credentials: 'include',
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + authToken
                 },
                 body: JSON.stringify({ group_id: null })
             });
@@ -244,7 +240,6 @@ async function loadPermissionTargets() {
     try {
         if (targetType === 'user') {
             const response = await fetch(API_BASE + '/admin/users', {
-                headers: { 'Authorization': 'Bearer ' + authToken }
             });
             const data = await response.json();
             
@@ -255,7 +250,6 @@ async function loadPermissionTargets() {
             }
         } else {
             const response = await fetch(API_BASE + '/groups', {
-                headers: { 'Authorization': 'Bearer ' + authToken }
             });
             const data = await response.json();
             
@@ -281,12 +275,10 @@ async function loadPermissions() {
     
     try {
         const permResponse = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId, {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         const permData = await permResponse.json();
         
         const folderResponse = await fetch(API_BASE + '/folders?parent_id=1', {
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         const folderData = await folderResponse.json();
         
@@ -352,10 +344,10 @@ function renderDocumentPermissions(permissions, targetType, targetId) {
 async function setFolderPermission(targetType, targetId, folderId, canRead) {
     try {
         const response = await fetch(API_BASE + '/permissions', {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + authToken
             },
             body: JSON.stringify({
                 target_type: targetType,
@@ -378,10 +370,10 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
 async function setDocumentPermission(targetType, targetId, docId, canRead) {
     try {
         const response = await fetch(API_BASE + '/permissions', {
+            credentials: 'include',
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + authToken
             },
             body: JSON.stringify({
                 target_type: targetType,
@@ -404,8 +396,8 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
 async function removeDocumentPermission(targetType, targetId, docId) {
     try {
         const response = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/document/' + docId, {
+            credentials: 'include',
             method: 'DELETE',
-            headers: { 'Authorization': 'Bearer ' + authToken }
         });
         
         if (response.ok) {
