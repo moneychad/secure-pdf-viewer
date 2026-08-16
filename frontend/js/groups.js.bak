@@ -32,52 +32,53 @@ function renderGroups(groups) {
         return;
     }
     
-    tbody.innerHTML = groups.map(function(group) {
-        return '<tr>' +
-            '<td>' + group.id + '</td>' +
-            '<td>' + escapeHtml(group.name) + '</td>' +
-            '<td>' + escapeHtml(group.description || '-') + '</td>' +
-            '<td>' + group.member_count + ' 人</td>' +
-            '<td>' + formatDate(group.created_at) + '</td>' +
-            '<td>' +
-                '<button class="btn-action btn-edit" onclick="editGroup(' + group.id + ')" title="编辑">✏️</button>' +
-                '<button class="btn-action btn-delete" onclick="deleteGroup(' + group.id + ')" title="删除">🗑️</button>' +
-                '<button class="btn-action btn-move" onclick="showGroupMembers(' + group.id + ')" title="成员管理">👥</button>' +
-            '</td>' +
-        '</tr>';
-    }).join('');
+    tbody.innerHTML = groups.map(group => `
+        <tr>
+            <td>${group.id}</td>
+            <td>${escapeHtml(group.name)}</td>
+            <td>${escapeHtml(group.description || '-')}</td>
+            <td>${group.member_count} 人</td>
+            <td>${formatDate(group.created_at)}</td>
+            <td>
+                <button class="btn-action btn-edit" onclick="editGroup(${group.id})" title="编辑">✏️</button>
+                <button class="btn-action btn-delete" onclick="deleteGroup(${group.id})" title="删除">🗑️</button>
+                <button class="btn-action btn-move" onclick="showGroupMembers(${group.id})" title="成员管理">👥</button>
+            </td>
+        </tr>
+    `).join('');
 }
 
-function createGroup() {
-    var name = document.getElementById('new-group-name').value.trim();
-    var desc = document.getElementById('new-group-desc').value.trim();
+async function createGroup(e) {
+    if (e) e.preventDefault();
     
-    if (!name) {
-        alert('请输入用户组名称');
-        return;
-    }
+    const name = document.getElementById('new-group-name').value.trim();
+    const desc = document.getElementById('new-group-desc').value.trim();
     
-    fetch(API_BASE + '/groups', {
-        credentials: 'include',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, description: desc })
-    })
-    .then(function(resp) { return resp.json(); })
-    .then(function(data) {
-        if (data.group_id) {
+    if (!name) { alert('请输入用户组名称'); return false; }
+    
+    try {
+        const response = await fetch(API_BASE + '/groups', {
+            credentials: 'include',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: name, description: desc })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
             document.getElementById('new-group-name').value = '';
             document.getElementById('new-group-desc').value = '';
             loadGroups();
-            alert('用户组创建成功');
         } else {
             alert(data.detail || '创建失败');
         }
-    })
-    .catch(function(err) {
-        console.error('创建用户组错误:', err);
+    } catch (error) {
         alert('网络错误，请重试');
-    });
+    }
+    return false;
 }
 
 async function editGroup(groupId) {
@@ -91,7 +92,9 @@ async function editGroup(groupId) {
         const response = await fetch(API_BASE + '/groups/' + groupId, {
             credentials: 'include',
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({ name: newName })
         });
         
@@ -105,6 +108,7 @@ async function editGroup(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function deleteGroup(groupId) {
@@ -113,7 +117,7 @@ async function deleteGroup(groupId) {
     try {
         const response = await fetch(API_BASE + '/groups/' + groupId, {
             credentials: 'include',
-            method: 'DELETE'
+            method: 'DELETE',
         });
         
         const data = await response.json();
@@ -126,6 +130,7 @@ async function deleteGroup(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function showGroupMembers(groupId) {
@@ -134,7 +139,6 @@ async function showGroupMembers(groupId) {
     
     try {
         const response = await fetch(API_BASE + '/groups/' + groupId + '/members', {
-            credentials: 'include'
         });
         
         const data = await response.json();
@@ -157,12 +161,12 @@ async function showGroupMembers(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function addGroupMember(username, groupId) {
     try {
         const response = await fetch(API_BASE + '/admin/users', {
-            credentials: 'include'
         });
         
         const data = await response.json();
@@ -177,7 +181,9 @@ async function addGroupMember(username, groupId) {
             const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
                 credentials: 'include',
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({ group_id: groupId })
             });
             
@@ -192,12 +198,12 @@ async function addGroupMember(username, groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function removeGroupMember(username) {
     try {
         const response = await fetch(API_BASE + '/admin/users', {
-            credentials: 'include'
         });
         
         const data = await response.json();
@@ -212,7 +218,9 @@ async function removeGroupMember(username) {
             const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
                 credentials: 'include',
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({ group_id: null })
             });
             
@@ -227,6 +235,7 @@ async function removeGroupMember(username) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 // ==================== 权限配置 ====================
@@ -238,25 +247,23 @@ async function loadPermissionTargets() {
     try {
         if (targetType === 'user') {
             const response = await fetch(API_BASE + '/admin/users', {
-                credentials: 'include'
             });
             const data = await response.json();
             
             if (response.ok) {
-                select.innerHTML = data.users.map(function(u) {
-                    return '<option value="' + u.id + '">' + escapeHtml(u.username) + (u.group_name ? ' (' + u.group_name + ')' : '') + '</option>';
-                }).join('');
+                select.innerHTML = data.users.map(u => 
+                    `<option value="${u.id}">${escapeHtml(u.username)}${u.group_name ? ' (' + u.group_name + ')' : ''}</option>`
+                ).join('');
             }
         } else {
             const response = await fetch(API_BASE + '/groups', {
-                credentials: 'include'
             });
             const data = await response.json();
             
             if (response.ok) {
-                select.innerHTML = data.groups.map(function(g) {
-                    return '<option value="' + g.id + '">' + escapeHtml(g.name) + ' (' + g.member_count + '人)</option>';
-                }).join('');
+                select.innerHTML = data.groups.map(g => 
+                    `<option value="${g.id}">${escapeHtml(g.name)} (${g.member_count}人)</option>`
+                ).join('');
             }
         }
     } catch (error) {
@@ -275,12 +282,10 @@ async function loadPermissions() {
     
     try {
         const permResponse = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId, {
-            credentials: 'include'
         });
         const permData = await permResponse.json();
         
         const folderResponse = await fetch(API_BASE + '/folders?parent_id=1', {
-            credentials: 'include'
         });
         const folderData = await folderResponse.json();
         
@@ -302,22 +307,24 @@ function renderFolderPermissions(folders, permissions, targetType, targetId) {
     }
     
     const permMap = {};
-    permissions.forEach(function(p) {
+    permissions.forEach(p => {
         permMap[p.folder_id] = p.can_read;
     });
     
-    container.innerHTML = folders.map(function(folder) {
+    container.innerHTML = folders.map(folder => {
         const hasPerm = permMap[folder.id] === 1;
         
-        return '<div class="permission-item">' +
-            '<label>' +
-                '<input type="checkbox" ' + (hasPerm ? 'checked' : '') + 
-                ' onchange="setFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + folder.id + ', this.checked)">' +
-                '<span class="folder-icon">📁</span>' +
-                '<span>' + escapeHtml(folder.name) + ' (' + folder.doc_count + ' 个文件)</span>' +
-            '</label>' +
-            '<span class="perm-status ' + (hasPerm ? 'perm-granted' : 'perm-denied') + '">' + (hasPerm ? '已授权' : '未授权') + '</span>' +
-        '</div>';
+        return `
+            <div class="permission-item">
+                <label>
+                    <input type="checkbox" ${hasPerm ? 'checked' : ''} 
+                        onchange="setFolderPermission('${targetType}', ${targetId}, ${folder.id}, this.checked)">
+                    <span class="folder-icon">📁</span>
+                    <span>${escapeHtml(folder.name)} (${folder.doc_count} 个文件)</span>
+                </label>
+                <span class="perm-status ${hasPerm ? 'perm-granted' : 'perm-denied'}">${hasPerm ? '已授权' : '未授权'}</span>
+            </div>
+        `;
     }).join('');
 }
 
@@ -329,16 +336,16 @@ function renderDocumentPermissions(permissions, targetType, targetId) {
         return;
     }
     
-    container.innerHTML = permissions.map(function(perm) {
-        return '<div class="permission-item">' +
-            '<label>' +
-                '<input type="checkbox" checked ' +
-                'onchange="setDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ', this.checked)">' +
-                '<span>📄 ' + escapeHtml(perm.document_name) + '</span>' +
-            '</label>' +
-            '<button class="btn-action btn-delete" onclick="removeDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ')" title="移除权限">🗑️</button>' +
-        '</div>';
-    }).join('');
+    container.innerHTML = permissions.map(perm => `
+        <div class="permission-item">
+            <label>
+                <input type="checkbox" checked 
+                    onchange="setDocumentPermission('${targetType}', ${targetId}, ${perm.document_id}, this.checked)">
+                <span>📄 ${escapeHtml(perm.document_name)}</span>
+            </label>
+            <button class="btn-action btn-delete" onclick="removeDocumentPermission('${targetType}', ${targetId}, ${perm.document_id})" title="移除权限">🗑️</button>
+        </div>
+    `).join('');
 }
 
 async function setFolderPermission(targetType, targetId, folderId, canRead) {
@@ -346,7 +353,9 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
         const response = await fetch(API_BASE + '/permissions', {
             credentials: 'include',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({
                 target_type: targetType,
                 target_id: parseInt(targetId),
@@ -363,6 +372,7 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function setDocumentPermission(targetType, targetId, docId, canRead) {
@@ -370,7 +380,9 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
         const response = await fetch(API_BASE + '/permissions', {
             credentials: 'include',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({
                 target_type: targetType,
                 target_id: parseInt(targetId),
@@ -387,13 +399,14 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function removeDocumentPermission(targetType, targetId, docId) {
     try {
         const response = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/document/' + docId, {
             credentials: 'include',
-            method: 'DELETE'
+            method: 'DELETE',
         });
         
         if (response.ok) {
@@ -405,15 +418,13 @@ async function removeDocumentPermission(targetType, targetId, docId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 // 绑定事件
 document.addEventListener('DOMContentLoaded', function() {
-    var createGroupBtn = document.querySelector('#create-group-form button');
-    if (createGroupBtn) {
-        createGroupBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            createGroup();
-        });
+    const createGroupForm = document.getElementById('create-group-form');
+    if (createGroupForm) {
+        createGroupForm.addEventListener('submit', createGroup);
     }
 });

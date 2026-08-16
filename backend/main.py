@@ -334,10 +334,14 @@ def verify_token(request: Request):
 def log_audit(conn, user_id, username, action, target_type=None, target_id=None, target_name=None, details=None, ip_address=None):
     """记录审计日志"""
     c = conn.cursor()
+    from datetime import timedelta
+    beijing_time = datetime.now(timezone(timedelta(hours=8)))
+    
     c.execute("""INSERT INTO audit_logs 
-                (user_id, username, action, target_type, target_id, target_name, details, ip_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-              (user_id, username, action, target_type, target_id, target_name, details, ip_address))
+                (user_id, username, action, target_type, target_id, target_name, details, ip_address, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (user_id, username, action, target_type, target_id, target_name, details, ip_address, 
+               beijing_time.strftime(%Y-%m-%d %H:%M:%S)))
 
 def get_db():
     """获取数据库连接（注意：调用方需要手动关闭连接）"""
@@ -1228,13 +1232,16 @@ async def log_access(log: AccessLog, request: Request, token_data: dict = Depend
     
     user_agent = request.headers.get("user-agent", "")
     
+    from datetime import timedelta
+    beijing_time = datetime.now(timezone(timedelta(hours=8)))
+    
     c.execute("""INSERT INTO access_logs 
                 (user_id, username, document_id, action, page_number, 
-                 device_fingerprint, ip_address, user_agent, duration_seconds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 device_fingerprint, ip_address, user_agent, duration_seconds, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
               (token_data.get("user_id"), token_data["username"], log.document_id,
                log.action, log.page_number, log.device_fingerprint, ip_address,
-               user_agent, log.duration_seconds))
+               user_agent, log.duration_seconds, beijing_time.strftime(%Y-%m-%d %H:%M:%S)))
     conn.commit()
     conn.close()
     
