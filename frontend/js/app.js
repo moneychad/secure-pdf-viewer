@@ -127,17 +127,39 @@ async function handleLogout() {
     showLoginPage();
 }
 
+var lastActivityTime = Date.now();
+var INACTIVITY_TIMEOUT = 10 * 60 * 1000;
+
+function updateActivity() {
+    lastActivityTime = Date.now();
+}
+
+function checkInactivity() {
+    if (Date.now() - lastActivityTime > INACTIVITY_TIMEOUT) {
+        logout();
+    }
+}
+
+setInterval(checkInactivity, 60000);
+document.addEventListener('click', updateActivity);
+document.addEventListener('keypress', updateActivity);
+document.addEventListener('scroll', updateActivity);
+
 function checkLoginStatus() {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-    
-    if (token && user) {
-        try {
-            authToken = token;
-            currentUser = JSON.parse(user);
-            showMainPage();
-        } catch (e) { showLoginPage(); }
-    } else { showLoginPage(); }
+    fetch(API_BASE + '/users/me', {
+        credentials: 'include'
+    })
+    .then(function(resp) {
+        if (resp.ok) return resp.json();
+        throw new Error('Not authenticated');
+    })
+    .then(function(data) {
+        currentUser = data;
+        showMainPage();
+    })
+    .catch(function() {
+        showLoginPage();
+    });
 }
 
 function showLoginPage() {
