@@ -745,6 +745,60 @@ async def delete_group(group_id: int, token_data: dict = Depends(verify_token)):
     
     return {"message": "用户组删除成功"}
 
+@app.post("/api/groups/{group_id}/members/remove")
+async def remove_group_members(
+    group_id: int,
+    request: Request,
+    token_data: dict = Depends(verify_token)
+):
+    """批量移除用户组成员"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以操作")
+    
+    body = await request.json()
+    user_ids = body.get("user_ids", [])
+    
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="请选择要移除的成员")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    for user_id in user_ids:
+        c.execute("UPDATE users SET group_id = NULL WHERE id = ? AND group_id = ?", (user_id, group_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": f"成功移除 {len(user_ids)} 名成员"}
+
+@app.post("/api/groups/{group_id}/members/add")
+async def add_group_members(
+    group_id: int,
+    request: Request,
+    token_data: dict = Depends(verify_token)
+):
+    """批量添加用户组成员"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以操作")
+    
+    body = await request.json()
+    user_ids = body.get("user_ids", [])
+    
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="请选择要添加的成员")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    for user_id in user_ids:
+        c.execute("UPDATE users SET group_id = ? WHERE id = ?", (group_id, user_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": f"成功添加 {len(user_ids)} 名成员"}
+
 @app.get("/api/groups/{group_id}/members")
 async def list_group_members(group_id: int, token_data: dict = Depends(verify_token)):
     conn = get_db()
@@ -1219,6 +1273,55 @@ class BatchPermissionRequest(BaseModel):
     target_type: str
     target_id: int
     items: List[BatchPermissionItem]
+
+@app.get("/api/resource-permissions/{resource_type}/{resource_id}")
+async def get_resource_permissions(
+    resource_type: str,
+    resource_id: int,
+    token_data: dict = Depends(verify_token)
+):
+    """获取文件或目录已授权的用户和用户组"""
+    conn = get_db()
+    c = conn.cursor()
+    
+    result = {"users": [], "groups": []}
+    
+    if resource_type == "folder":
+        # 查询已授权的用户
+        c.execute("""SELECT u.id, u.username, 'user' as type 
+                    FROM folder_permissions fp
+                    JOIN users u ON fp.user_id = u.id
+                    WHERE fp.folder_id = ? AND fp.user_id IS NOT NULL AND fp.can_read = 1""",
+                 (resource_id,))
+        result["users"] = [dict(row) for row in c.fetchall()]
+        
+        # 查询已授权的用户组
+        c.execute("""SELECT g.id, g.name, 'group' as type 
+                    FROM folder_permissions fp
+                    JOIN user_groups g ON fp.group_id = g.id
+                    WHERE fp.folder_id = ? AND fp.group_id IS NOT NULL AND fp.can_read = 1""",
+                 (resource_id,))
+        result["groups"] = [dict(row) for row in c.fetchall()]
+        
+    elif resource_type == "document":
+        # 查询已授权的用户
+        c.execute("""SELECT u.id, u.username, 'user' as type 
+                    FROM document_permissions dp
+                    JOIN users u ON dp.user_id = u.id
+                    WHERE dp.document_id = ? AND dp.user_id IS NOT NULL AND dp.can_read = 1""",
+                 (resource_id,))
+        result["users"] = [dict(row) for row in c.fetchall()]
+        
+        # 查询已授权的用户组
+        c.execute("""SELECT g.id, g.name, 'group' as type 
+                    FROM document_permissions dp
+                    JOIN user_groups g ON dp.group_id = g.id
+                    WHERE dp.document_id = ? AND dp.group_id IS NOT NULL AND dp.can_read = 1""",
+                 (resource_id,))
+        result["groups"] = [dict(row) for row in c.fetchall()]
+    
+    conn.close()
+    return result
 
 @app.post("/api/permissions/batch")
 async def batch_set_permissions(

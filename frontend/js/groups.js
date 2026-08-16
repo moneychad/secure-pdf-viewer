@@ -3,18 +3,16 @@
  */
 
 // 全局变量
-let allGroups = [];
+var allGroups = [];
 
 // ==================== 用户组管理 ====================
 
 async function loadGroups() {
     try {
-        const response = await fetch(API_BASE + '/groups', {
+        var response = await fetch(API_BASE + '/groups', {
             credentials: 'include'
         });
-        
-        const data = await response.json();
-        
+        var data = await response.json();
         if (response.ok) {
             allGroups = data.groups;
             renderGroups(data.groups);
@@ -25,24 +23,24 @@ async function loadGroups() {
 }
 
 function renderGroups(groups) {
-    const tbody = document.getElementById('groups-body');
-    
+    var tbody = document.getElementById('groups-body');
     if (!groups || groups.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">暂无用户组</td></tr>';
         return;
     }
     
     tbody.innerHTML = groups.map(function(group) {
+        var members = group.member_names || '暂无成员';
         return '<tr>' +
             '<td>' + group.id + '</td>' +
             '<td>' + escapeHtml(group.name) + '</td>' +
             '<td>' + escapeHtml(group.description || '-') + '</td>' +
-            '<td>' + (group.member_names ? group.member_names : '暂无成员') + '</td>' +
+            '<td class="members-cell">' + escapeHtml(members) + '</td>' +
             '<td>' + formatDate(group.created_at) + '</td>' +
             '<td>' +
                 '<button class="btn-action btn-edit" onclick="editGroup(' + group.id + ')" title="编辑">✏️</button>' +
                 '<button class="btn-action btn-delete" onclick="deleteGroup(' + group.id + ')" title="删除">🗑️</button>' +
-                '<button class="btn-action btn-move" onclick="showGroupMembers(' + group.id + ')" title="成员管理">👥</button>' +
+                '<button class="btn-action btn-move" onclick="showGroupMembersModal(' + group.id + ')" title="成员管理">👥</button>' +
             '</td>' +
         '</tr>';
     }).join('');
@@ -51,7 +49,6 @@ function renderGroups(groups) {
 function createGroup() {
     var name = document.getElementById('new-group-name').value.trim();
     var desc = document.getElementById('new-group-desc').value.trim();
-    
     if (!name) {
         alert('请输入用户组名称');
         return;
@@ -81,25 +78,23 @@ function createGroup() {
 }
 
 async function editGroup(groupId) {
-    const group = allGroups.find(g => g.id === groupId);
+    var group = allGroups.find(function(g) { return g.id === groupId; });
     if (!group) return;
     
-    const newName = prompt('请输入新组名:', group.name);
+    var newName = prompt('请输入新组名:', group.name);
     if (!newName || newName === group.name) return;
     
     try {
-        const response = await fetch(API_BASE + '/groups/' + groupId, {
+        var response = await fetch(API_BASE + '/groups/' + groupId, {
             credentials: 'include',
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: newName })
         });
-        
-        const data = await response.json();
-        
         if (response.ok) {
             loadGroups();
         } else {
+            var data = await response.json();
             alert(data.detail || '修改失败');
         }
     } catch (error) {
@@ -109,18 +104,15 @@ async function editGroup(groupId) {
 
 async function deleteGroup(groupId) {
     if (!confirm('确定要删除此用户组吗？组内用户将被移出该组。')) return;
-    
     try {
-        const response = await fetch(API_BASE + '/groups/' + groupId, {
+        var response = await fetch(API_BASE + '/groups/' + groupId, {
             credentials: 'include',
             method: 'DELETE'
         });
-        
-        const data = await response.json();
-        
         if (response.ok) {
             loadGroups();
         } else {
+            var data = await response.json();
             alert(data.detail || '删除失败');
         }
     } catch (error) {
@@ -128,103 +120,135 @@ async function deleteGroup(groupId) {
     }
 }
 
-async function showGroupMembers(groupId) {
-    const group = allGroups.find(g => g.id === groupId);
+// ==================== 成员管理弹窗 ====================
+
+async function showGroupMembersModal(groupId) {
+    var group = allGroups.find(function(g) { return g.id === groupId; });
     if (!group) return;
     
+    // 获取组内成员
+    var members = [];
     try {
-        const response = await fetch(API_BASE + '/groups/' + groupId + '/members', {
-            credentials: 'include'
+        var resp = await fetch(API_BASE + '/groups/' + groupId + '/members', { credentials: 'include' });
+        var data = await resp.json();
+        if (data.members) members = data.members;
+    } catch (e) {}
+    
+    // 获取所有未分组用户
+    var allUsers = [];
+    try {
+        var resp2 = await fetch(API_BASE + '/admin/users', { credentials: 'include' });
+        var data2 = await resp2.json();
+        if (data2.users) allUsers = data2.users;
+    } catch (e) {}
+    
+    var ungroupedUsers = allUsers.filter(function(u) { return !u.group_id; });
+    
+    // 创建或获取弹窗
+    var modal = document.getElementById('group-members-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'group-members-modal';
+        modal.className = 'modal';
+        document.body.appendChild(modal);
+    }
+    
+    var membersHtml = '';
+    if (members.length > 0) {
+        members.forEach(function(m) {
+            membersHtml += '<label class="member-item"><input type="checkbox" class="member-checkbox" value="' + m.id + '"> ' + escapeHtml(m.username) + '</label>';
         });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            let memberList = data.members.map(m => m.username).join(', ') || '暂无成员';
-            const action = prompt(
-                '用户组: ' + group.name + '\n成员: ' + memberList + '\n\n请输入操作:\n1. 添加成员 (输入用户名)\n2. 移除成员 (输入 -用户名)'
-            );
-            
-            if (action) {
-                if (action.startsWith('-')) {
-                    const username = action.substring(1).trim();
-                    await removeGroupMember(username);
-                } else {
-                    await addGroupMember(action.trim(), groupId);
-                }
-            }
+    } else {
+        membersHtml = '<div class="perm-empty">暂无成员</div>';
+    }
+    
+    var addOptionsHtml = '';
+    if (ungroupedUsers.length > 0) {
+        ungroupedUsers.forEach(function(u) {
+            addOptionsHtml += '<label class="member-item"><input type="checkbox" class="add-member-checkbox" value="' + u.id + '"> ' + escapeHtml(u.username) + '</label>';
+        });
+    } else {
+        addOptionsHtml = '<div class="perm-empty">暂无可添加的用户</div>';
+    }
+    
+    modal.innerHTML = '<div class="modal-content" style="min-width:600px;">' +
+        '<h3>成员管理: ' + escapeHtml(group.name) + '</h3>' +
+        '<div class="members-columns">' +
+            '<div class="members-column">' +
+                '<div class="members-header">👥 当前成员 (' + members.length + '人)</div>' +
+                '<div class="members-list" id="current-members-list">' + membersHtml + '</div>' +
+                '<button class="btn-danger" style="margin-top:10px;" onclick="removeSelectedMembers(' + groupId + ')">移除选中成员</button>' +
+            '</div>' +
+            '<div class="members-column">' +
+                '<div class="members-header">➕ 添加成员 (未分组用户: ' + ungroupedUsers.length + '人)</div>' +
+                '<div class="members-list" id="add-members-list">' + addOptionsHtml + '</div>' +
+                '<button class="btn-primary" style="margin-top:10px;" onclick="addSelectedMembers(' + groupId + ')">添加选中成员</button>' +
+            '</div>' +
+        '</div>' +
+        '<div class="modal-actions">' +
+            '<button class="btn-secondary" onclick="closeModal(\'group-members-modal\')">关闭</button>' +
+        '</div>' +
+    '</div>';
+    
+    modal.classList.remove('hidden');
+}
+
+async function removeSelectedMembers(groupId) {
+    var checkboxes = document.querySelectorAll('#current-members-list .member-checkbox:checked');
+    var userIds = Array.from(checkboxes).map(function(cb) { return parseInt(cb.value); });
+    
+    if (userIds.length === 0) {
+        alert('请选择要移除的成员');
+        return;
+    }
+    
+    try {
+        var resp = await fetch(API_BASE + '/groups/' + groupId + '/members/remove', {
+            credentials: 'include',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_ids: userIds })
+        });
+        var data = await resp.json();
+        if (data.message) {
+            alert(data.message);
+            showGroupMembersModal(groupId);
+            loadGroups();
+            loadUsers();
+        } else {
+            alert(data.detail || '移除失败');
         }
-    } catch (error) {
+    } catch (e) {
         alert('网络错误，请重试');
     }
 }
 
-async function addGroupMember(username, groupId) {
-    try {
-        const response = await fetch(API_BASE + '/admin/users', {
-            credentials: 'include'
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            const user = data.users.find(u => u.username === username);
-            if (!user) {
-                alert('用户不存在: ' + username);
-                return;
-            }
-            
-            const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
-                credentials: 'include',
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: groupId })
-            });
-            
-            if (updateResponse.ok) {
-                alert('已将 ' + username + ' 添加到用户组');
-                loadGroups();
-                loadUsers();
-            } else {
-                alert('添加失败');
-            }
-        }
-    } catch (error) {
-        alert('网络错误，请重试');
+async function addSelectedMembers(groupId) {
+    var checkboxes = document.querySelectorAll('#add-members-list .add-member-checkbox:checked');
+    var userIds = Array.from(checkboxes).map(function(cb) { return parseInt(cb.value); });
+    
+    if (userIds.length === 0) {
+        alert('请选择要添加的成员');
+        return;
     }
-}
-
-async function removeGroupMember(username) {
+    
     try {
-        const response = await fetch(API_BASE + '/admin/users', {
-            credentials: 'include'
+        var resp = await fetch(API_BASE + '/groups/' + groupId + '/members/add', {
+            credentials: 'include',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_ids: userIds })
         });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            const user = data.users.find(u => u.username === username);
-            if (!user) {
-                alert('用户不存在: ' + username);
-                return;
-            }
-            
-            const updateResponse = await fetch(API_BASE + '/admin/users/' + user.id, {
-                credentials: 'include',
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ group_id: null })
-            });
-            
-            if (updateResponse.ok) {
-                alert('已将 ' + username + ' 移出用户组');
-                loadGroups();
-                loadUsers();
-            } else {
-                alert('移除失败');
-            }
+        var data = await resp.json();
+        if (data.message) {
+            alert(data.message);
+            showGroupMembersModal(groupId);
+            loadGroups();
+            loadUsers();
+        } else {
+            alert(data.detail || '添加失败');
         }
-    } catch (error) {
+    } catch (e) {
         alert('网络错误，请重试');
     }
 }
@@ -232,30 +256,24 @@ async function removeGroupMember(username) {
 // ==================== 权限配置 ====================
 
 async function loadPermissionTargets() {
-    const targetType = document.getElementById('perm-target-type').value;
-    const select = document.getElementById('perm-target-id');
+    var targetType = document.getElementById('perm-target-type').value;
+    var select = document.getElementById('perm-target-id');
     
     try {
         if (targetType === 'user') {
-            const response = await fetch(API_BASE + '/admin/users', {
-                credentials: 'include'
-            });
-            const data = await response.json();
-            
+            var response = await fetch(API_BASE + '/admin/users', { credentials: 'include' });
+            var data = await response.json();
             if (response.ok) {
                 select.innerHTML = data.users.map(function(u) {
                     return '<option value="' + u.id + '">' + escapeHtml(u.username) + (u.group_name ? ' (' + u.group_name + ')' : '') + '</option>';
                 }).join('');
             }
         } else {
-            const response = await fetch(API_BASE + '/groups', {
-                credentials: 'include'
-            });
-            const data = await response.json();
-            
+            var response = await fetch(API_BASE + '/groups', { credentials: 'include' });
+            var data = await response.json();
             if (response.ok) {
                 select.innerHTML = data.groups.map(function(g) {
-                    return '<option value="' + g.id + '">' + escapeHtml(g.name) + ' (' + g.member_count + '人)</option>';
+                    return '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>';
                 }).join('');
             }
         }
@@ -265,8 +283,8 @@ async function loadPermissionTargets() {
 }
 
 async function loadPermissions() {
-    const targetType = document.getElementById('perm-target-type').value;
-    const targetId = document.getElementById('perm-target-id').value;
+    var targetType = document.getElementById('perm-target-type').value;
+    var targetId = document.getElementById('perm-target-id').value;
     
     if (!targetId) {
         alert('请选择配置对象');
@@ -274,15 +292,11 @@ async function loadPermissions() {
     }
     
     try {
-        const permResponse = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId, {
-            credentials: 'include'
-        });
-        const permData = await permResponse.json();
+        var permResponse = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId, { credentials: 'include' });
+        var permData = await permResponse.json();
         
-        const folderResponse = await fetch(API_BASE + '/folders?parent_id=1', {
-            credentials: 'include'
-        });
-        const folderData = await folderResponse.json();
+        var folderResponse = await fetch(API_BASE + '/folders?parent_id=1', { credentials: 'include' });
+        var folderData = await folderResponse.json();
         
         if (permResponse.ok && folderResponse.ok) {
             renderFolderPermissions(folderData.folders, permData.folder_permissions, targetType, targetId);
@@ -294,21 +308,17 @@ async function loadPermissions() {
 }
 
 function renderFolderPermissions(folders, permissions, targetType, targetId) {
-    const container = document.getElementById('folder-permissions');
-    
+    var container = document.getElementById('folder-permissions');
     if (!folders || folders.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#666;">暂无目录</p>';
         return;
     }
     
-    const permMap = {};
-    permissions.forEach(function(p) {
-        permMap[p.folder_id] = p.can_read;
-    });
+    var permMap = {};
+    permissions.forEach(function(p) { permMap[p.folder_id] = p.can_read; });
     
     container.innerHTML = folders.map(function(folder) {
-        const hasPerm = permMap[folder.id] === 1;
-        
+        var hasPerm = permMap[folder.id] === 1;
         return '<div class="permission-item">' +
             '<label>' +
                 '<input type="checkbox" ' + (hasPerm ? 'checked' : '') + 
@@ -322,8 +332,7 @@ function renderFolderPermissions(folders, permissions, targetType, targetId) {
 }
 
 function renderDocumentPermissions(permissions, targetType, targetId) {
-    const container = document.getElementById('document-permissions');
-    
+    var container = document.getElementById('document-permissions');
     if (!permissions || permissions.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#666;">暂无单独配置的文件权限</p>';
         return;
@@ -332,8 +341,7 @@ function renderDocumentPermissions(permissions, targetType, targetId) {
     container.innerHTML = permissions.map(function(perm) {
         return '<div class="permission-item">' +
             '<label>' +
-                '<input type="checkbox" checked ' +
-                'onchange="setDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ', this.checked)">' +
+                '<input type="checkbox" checked onchange="setDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ', this.checked)">' +
                 '<span>📄 ' + escapeHtml(perm.document_name) + '</span>' +
             '</label>' +
             '<button class="btn-action btn-delete" onclick="removeDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ')" title="移除权限">🗑️</button>' +
@@ -343,7 +351,7 @@ function renderDocumentPermissions(permissions, targetType, targetId) {
 
 async function setFolderPermission(targetType, targetId, folderId, canRead) {
     try {
-        const response = await fetch(API_BASE + '/permissions', {
+        var response = await fetch(API_BASE + '/permissions', {
             credentials: 'include',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -355,9 +363,8 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
                 can_read: canRead
             })
         });
-        
         if (!response.ok) {
-            const data = await response.json();
+            var data = await response.json();
             alert(data.detail || '设置失败');
         }
     } catch (error) {
@@ -367,7 +374,7 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
 
 async function setDocumentPermission(targetType, targetId, docId, canRead) {
     try {
-        const response = await fetch(API_BASE + '/permissions', {
+        var response = await fetch(API_BASE + '/permissions', {
             credentials: 'include',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -379,9 +386,8 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
                 can_read: canRead
             })
         });
-        
         if (!response.ok) {
-            const data = await response.json();
+            var data = await response.json();
             alert(data.detail || '设置失败');
         }
     } catch (error) {
@@ -391,15 +397,14 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
 
 async function removeDocumentPermission(targetType, targetId, docId) {
     try {
-        const response = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/document/' + docId, {
+        var response = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/document/' + docId, {
             credentials: 'include',
             method: 'DELETE'
         });
-        
         if (response.ok) {
             loadPermissions();
         } else {
-            const data = await response.json();
+            var data = await response.json();
             alert(data.detail || '移除失败');
         }
     } catch (error) {

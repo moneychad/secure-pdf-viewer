@@ -1471,6 +1471,9 @@ function showPermissionModal(resourceType, resourceId, resourceName) {
     document.getElementById('perm-selected-target').style.display = 'none';
     document.getElementById('permission-modal').classList.remove('hidden');
     loadAllPermTargets('perm-search-results', 'selectPermTarget');
+    loadCurrentPermissions(resourceType, resourceId);
+}
+
 }
 
 function showBatchPermissionModal() {
@@ -1744,4 +1747,90 @@ function showPathModal(filePath) {
     
     document.getElementById('path-input').value = filePath;
     modal.classList.remove('hidden');
+}
+
+// ==================== 当前权限显示 ====================
+
+function loadCurrentPermissions(resourceType, resourceId) {
+    fetch(API_BASE + '/resource-permissions/' + resourceType + '/' + resourceId, {
+        credentials: 'include'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        var container = document.getElementById('current-permissions');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'current-permissions';
+            container.className = 'current-permissions';
+            var searchInput = document.getElementById('perm-search-input');
+            searchInput.parentNode.insertBefore(container, searchInput);
+        }
+        
+        // 清空容器
+        container.innerHTML = '';
+        
+        var label = document.createElement('label');
+        label.textContent = '已授权';
+        container.appendChild(label);
+        
+        var users = data.users || [];
+        var groups = data.groups || [];
+        
+        if (users.length === 0 && groups.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'perm-empty';
+            empty.textContent = '暂无授权';
+            container.appendChild(empty);
+        } else {
+            var list = document.createElement('div');
+            list.className = 'perm-list';
+            
+            users.forEach(function(u) {
+                var tag = document.createElement('span');
+                tag.className = 'perm-tag user-tag';
+                var text = document.createTextNode('👤 ' + u.username + ' ');
+                tag.appendChild(text);
+                var removeBtn = document.createElement('span');
+                removeBtn.className = 'perm-remove';
+                removeBtn.textContent = '×';
+                removeBtn.addEventListener('click', function() {
+                    removeResourcePermission(resourceType, resourceId, 'user', u.id);
+                });
+                tag.appendChild(removeBtn);
+                list.appendChild(tag);
+            });
+            
+            groups.forEach(function(g) {
+                var tag = document.createElement('span');
+                tag.className = 'perm-tag group-tag';
+                var text = document.createTextNode('👥 ' + g.name + ' ');
+                tag.appendChild(text);
+                var removeBtn = document.createElement('span');
+                removeBtn.className = 'perm-remove';
+                removeBtn.textContent = '×';
+                removeBtn.addEventListener('click', function() {
+                    removeResourcePermission(resourceType, resourceId, 'group', g.id);
+                });
+                tag.appendChild(removeBtn);
+                list.appendChild(tag);
+            });
+            
+            container.appendChild(list);
+        }
+    });
+}
+
+function removeResourcePermission(resourceType, resourceId, targetType, targetId) {
+    fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/' + resourceType + '/' + resourceId, {
+        credentials: 'include',
+        method: 'DELETE'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.message) {
+            loadCurrentPermissions(resourceType, resourceId);
+        } else {
+            alert(data.detail || '移除失败');
+        }
+    });
 }

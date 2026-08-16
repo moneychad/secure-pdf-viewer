@@ -1016,3 +1016,104 @@ tr:hover {
     color: #333;
     background: #f5f5f5;
 }
+
+/* 已授权显示 */
+.current-permissions {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f5f5f5;
+    border-radius: 5px;
+    border: 1px solid #e0e0e0;
+}
+
+.current-permissions label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #555;
+}
+
+.perm-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.perm-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 15px;
+    font-size: 13px;
+}
+
+.perm-tag.user-tag {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.perm-tag.group-tag {
+    background: #f3e5f5;
+    color: #7b1fa2;
+}
+
+.perm-remove {
+    cursor: pointer;
+    font-weight: bold;
+    margin-left: 3px;
+}
+
+.perm-remove:hover {
+    color: #d32f2f;
+}
+
+.perm-empty {
+    color: #999;
+    font-style: italic;
+}
+
+/* 成员管理弹窗 */
+.members-columns {
+    display: flex;
+    gap: 20px;
+    margin: 15px 0;
+}
+
+.members-column {
+    flex: 1;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.members-header {
+    font-weight: bold;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 10px;
+}
+
+.members-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.member-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 5px;
+    cursor: pointer;
+}
+
+.member-item:hover {
+    background: #f5f5f5;
+}
+
+.members-cell {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
