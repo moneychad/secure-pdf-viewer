@@ -796,15 +796,21 @@ function renderLogs(logs, total, page, limit) {
         return;
     }
     
+    // 操作类型映射
+    const actionMap = {
+        "view": "查看文档",
+        "page_view": "翻页"
+    };
+    
     tbody.innerHTML = logs.map(log => `
         <tr>
             <td>${formatDate(log.timestamp)}</td>
             <td>${escapeHtml(log.username)}</td>
             <td>${escapeHtml(log.original_name || '-')}</td>
-            <td>${log.action}</td>
+            <td>${actionMap[log.action] || log.action}</td>
             <td>${log.page_number || '-'}</td>
-            <td>${log.duration_seconds ? log.duration_seconds + '秒' : '-'}</td>
-            <td>${log.ip_address || '-'}</td>
+            <td>${log.duration_seconds > 0 ? log.duration_seconds + '秒' : '-'}</td>
+            <td>${escapeHtml(log.ip_address || '-')}</td>
             <td title="${log.device_fingerprint}">${log.device_fingerprint ? log.device_fingerprint.substring(0, 8) + '...' : '-'}</td>
         </tr>
     `).join('');
