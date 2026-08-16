@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Query
+
+# SQL 更新字段白名单（防止注入）
+ALLOWED_USER_UPDATE_FIELDS = {"username", "password_hash", "role", "group_id", "is_active"}
+ALLOWED_GROUP_UPDATE_FIELDS = {"name", "description"}
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,7 +24,9 @@ import jwt
 import uvicorn
 
 # 配置
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or SECRET_KEY == "your-secret-key-change-in-production":
+    raise RuntimeError("SECRET_KEY 必须设置且不能是默认值！请通过环境变量 SECRET_KEY 设置一个强密钥。")
 UPLOAD_DIR = Path("/opt/secure-pdf-viewer/backend/uploads")
 DB_PATH = Path("/opt/secure-pdf-viewer/backend/database.db")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
@@ -34,10 +40,10 @@ app = FastAPI(title="安全文档共享平台")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://192.168.100.107", "http://localhost", "http://127.0.0.1"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 security = HTTPBearer()
@@ -177,7 +183,7 @@ def init_db():
     )''')
     
     # 创建默认管理员
-    admin_hash = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
+    admin_hash = hash_password(ADMIN_PASSWORD)
     c.execute("INSERT OR IGNORE INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
               (ADMIN_USERNAME, admin_hash, "admin", 1))
     
@@ -187,7 +193,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
 
 # ==================== Pydantic 模型 ====================
 
@@ -267,8 +272,19 @@ class AccessLog(BaseModel):
 
 # ==================== 工具函数 ====================
 
+import bcrypt
+
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
+
+
+init_db()
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except:
+        return False
 
 def create_token(username: str, role: str, user_id: int) -> str:
     payload = {
@@ -291,8 +307,12 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def check_folder_permission(user_id: int, folder_id: int, db) -> bool:
+def check_folder_permission(user_id: int, folder_id: int, db, depth: int = 0) -> bool:
     """检查用户是否有目录的读取权限（包括继承）"""
+    # 防止无限递归
+    if depth > 10:
+        return False
+    
     c = db.cursor()
     
     # 获取用户信息
@@ -322,7 +342,7 @@ def check_folder_permission(user_id: int, folder_id: int, db) -> bool:
     c.execute("SELECT parent_id FROM folders WHERE id = ?", (folder_id,))
     folder = c.fetchone()
     if folder and folder["parent_id"]:
-        return check_folder_permission(user_id, folder["parent_id"], db)
+        return check_folder_permission(user_id, folder["parent_id"], db, depth + 1)
     
     return False
 
@@ -402,20 +422,76 @@ def _add_child_folder_ids(folder_id: int, ids_set: set, db):
         ids_set.add(row["id"])
         _add_child_folder_ids(row["id"], ids_set, db)
 
+# ==================== 登录频率限制 ====================
+from collections import defaultdict
+import time
+
+# 登录尝试记录: {ip: [(timestamp, count), ...]}
+login_attempts = defaultdict(list)
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
+def check_login_rate_limit(ip: str) -> tuple:
+    """检查登录频率限制，返回 (是否允许, 剩余尝试次数, 锁定剩余秒数)"""
+    now = time.time()
+    # 清理过期记录
+    login_attempts[ip] = [(t, c) for t, c in login_attempts[ip] if now - t < LOGIN_LOCKOUT_MINUTES * 60]
+    
+    if not login_attempts[ip]:
+        return True, LOGIN_MAX_ATTEMPTS, 0
+    
+    # 计算最近15分钟内的总尝试次数
+    total_attempts = sum(c for _, c in login_attempts[ip])
+    
+    if total_attempts >= LOGIN_MAX_ATTEMPTS:
+        oldest_time = min(t for t, _ in login_attempts[ip])
+        lockout_remaining = int(LOGIN_LOCKOUT_MINUTES * 60 - (now - oldest_time))
+        return False, 0, max(0, lockout_remaining)
+    
+    return True, LOGIN_MAX_ATTEMPTS - total_attempts, 0
+
+def record_login_attempt(ip: str, success: bool):
+    """记录登录尝试"""
+    now = time.time()
+    if success:
+        # 登录成功，清除记录
+        login_attempts.pop(ip, None)
+    else:
+        # 登录失败，增加计数
+        if login_attempts[ip]:
+            # 如果最近有记录，增加计数
+            login_attempts[ip][-1] = (login_attempts[ip][-1][0], login_attempts[ip][-1][1] + 1)
+        else:
+            login_attempts[ip].append((now, 1))
+
 # ==================== 认证 API ====================
 
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
+    # 检查登录频率限制
+    client_ip = request.client.host
+    allowed, remaining, lockout_seconds = check_login_rate_limit(client_ip)
+    
+    if not allowed:
+        raise HTTPException(
+            status_code=429, 
+            detail=f"登录尝试次数过多，请 {lockout_seconds // 60} 分钟后再试"
+        )
+    
     conn = get_db()
     c = conn.cursor()
     
-    password_hash = hash_password(user.password)
-    c.execute("SELECT id, username, role, is_active FROM users WHERE username = ? AND password_hash = ?",
-              (user.username, password_hash))
+    # 先查询用户，再用 bcrypt 验证密码
+    c.execute("SELECT id, username, role, is_active, password_hash FROM users WHERE username = ?",
+              (user.username,))
     user_data = c.fetchone()
+    
+    if user_data and not verify_password(user.password, user_data["password_hash"]):
+        user_data = None  # 密码不匹配
     
     if not user_data:
         conn.close()
+        record_login_attempt(client_ip, success=False)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     
     if not user_data["is_active"]:
@@ -425,6 +501,9 @@ async def login(user: UserLogin, request: Request):
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
     conn.commit()
     conn.close()
+    
+    # 登录成功，清除失败记录
+    record_login_attempt(client_ip, success=True)
     
     token = create_token(user_data["username"], user_data["role"], user_data["id"])
     return {
@@ -460,11 +539,11 @@ async def change_password(passwords: ChangePassword, token_data: dict = Depends(
     conn = get_db()
     c = conn.cursor()
     
-    old_hash = hash_password(passwords.old_password)
-    c.execute("SELECT id FROM users WHERE username = ? AND password_hash = ?",
-              (token_data["username"], old_hash))
+    # 先查询用户当前密码哈希
+    c.execute("SELECT password_hash FROM users WHERE username = ?", (token_data["username"],))
+    result = c.fetchone()
     
-    if not c.fetchone():
+    if not result or not verify_password(passwords.old_password, result["password_hash"]):
         conn.close()
         raise HTTPException(status_code=400, detail="旧密码错误")
     
@@ -527,10 +606,14 @@ async def update_group(group_id: int, group_update: GroupUpdate, token_data: dic
     params = []
     
     if group_update.name is not None:
+        if "name" not in ALLOWED_GROUP_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("name = ?")
         params.append(group_update.name)
     
     if group_update.description is not None:
+        if "description" not in ALLOWED_GROUP_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("description = ?")
         params.append(group_update.description)
     
@@ -781,11 +864,16 @@ async def upload_document(
         conn.close()
         raise HTTPException(status_code=404, detail="目标目录不存在")
     
+    # 限制文件大小（50MB）
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="文件过大，最大支持 50MB")
+    
     file_hash = hashlib.md5(f"{file.filename}{datetime.now()}".encode()).hexdigest()
     filename = f"{file_hash}.pdf"
     file_path = UPLOAD_DIR / filename
     
-    content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
     
@@ -1143,22 +1231,32 @@ async def update_user(user_id: int, user_update: UserUpdate, token_data: dict = 
     params = []
     
     if user_update.username is not None:
+        if "username" not in ALLOWED_USER_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("username = ?")
         params.append(user_update.username)
     
     if user_update.password is not None:
+        if "password_hash" not in ALLOWED_USER_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("password_hash = ?")
         params.append(hash_password(user_update.password))
     
     if user_update.role is not None:
+        if "role" not in ALLOWED_USER_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("role = ?")
         params.append(user_update.role)
     
     if user_update.group_id is not None:
+        if "group_id" not in ALLOWED_USER_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("group_id = ?")
         params.append(user_update.group_id)
     
     if user_update.is_active is not None:
+        if "is_active" not in ALLOWED_USER_UPDATE_FIELDS:
+            raise HTTPException(status_code=400, detail="非法字段")
         updates.append("is_active = ?")
         params.append(1 if user_update.is_active else 0)
     
