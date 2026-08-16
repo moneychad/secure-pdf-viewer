@@ -167,6 +167,21 @@ def init_db():
     )''')
     
     # 设备指纹表
+
+    # 审计日志表
+    c.execute("""CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        username TEXT,
+        action TEXT NOT NULL,
+        target_type TEXT,
+        target_id INTEGER,
+        target_name TEXT,
+        details TEXT,
+        ip_address TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    
     c.execute('''CREATE TABLE IF NOT EXISTS device_fingerprints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         fingerprint_hash TEXT UNIQUE,
@@ -295,15 +310,38 @@ def create_token(username: str, role: str, user_id: int) -> str:
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def verify_token(request: Request):
+    # 优先从 Authorization header 读取
+    auth_header = request.headers.get("Authorization")
+    token = None
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.replace("Bearer ", "")
+    
+    # 如果 header 没有，尝试从 Cookie 读取
+    if not token:
+        token = request.cookies.get("auth_token")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="未提供认证令牌")
+    
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return payload
     except:
         raise HTTPException(status_code=401, detail="无效的认证令牌")
 
+def log_audit(conn, user_id, username, action, target_type=None, target_id=None, target_name=None, details=None, ip_address=None):
+    """记录审计日志"""
+    c = conn.cursor()
+    c.execute("""INSERT INTO audit_logs 
+                (user_id, username, action, target_type, target_id, target_name, details, ip_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+              (user_id, username, action, target_type, target_id, target_name, details, ip_address))
+
 def get_db():
-    conn = sqlite3.connect(str(DB_PATH))
+    """获取数据库连接（注意：调用方需要手动关闭连接）"""
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -499,6 +537,9 @@ async def login(user: UserLogin, request: Request):
         raise HTTPException(status_code=403, detail="账号已被停用，请联系管理员")
     
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
+    
+    # 记录审计日志（在关闭连接前）
+    log_audit(conn, user_data["id"], user_data["username"], "LOGIN", "user", user_data["id"], user_data["username"], None, request.client.host)
     conn.commit()
     conn.close()
     
@@ -506,14 +547,26 @@ async def login(user: UserLogin, request: Request):
     record_login_attempt(client_ip, success=True)
     
     token = create_token(user_data["username"], user_data["role"], user_data["id"])
-    return {
+    
+    # 创建响应并设置 HttpOnly Cookie
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content={
         "token": token,
         "user": {
             "id": user_data["id"],
             "username": user_data["username"],
             "role": user_data["role"]
         }
-    }
+    })
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        secure=False,  # 开发环境用 False，生产环境应改为 True
+        samesite="lax",
+        max_age=86400  # 24小时
+    )
+    return response
 
 @app.post("/api/register")
 async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
@@ -722,6 +775,10 @@ async def create_folder(folder: FolderCreate, token_data: dict = Depends(verify_
     c.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)",
               (folder.name, folder.parent_id, token_data["username"]))
     folder_id = c.lastrowid
+    
+    # 记录审计日志
+    log_audit(conn, token_data.get("user_id"), token_data["username"],
+              "CREATE_FOLDER", "folder", folder_id, folder.name, None, None)
     conn.commit()
     conn.close()
     
@@ -773,6 +830,10 @@ async def delete_folder(folder_id: int, token_data: dict = Depends(verify_token)
     if not c.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="目录不存在")
+    
+    # 记录审计日志
+    log_audit(conn, token_data.get("user_id"), token_data["username"],
+              "DELETE_FOLDER", "folder", folder_id, None, None, None)
     
     c.execute("UPDATE documents SET folder_id = 1 WHERE folder_id = ?", (folder_id,))
     c.execute("UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (folder_id,))
@@ -932,6 +993,10 @@ async def delete_document(doc_id: int, token_data: dict = Depends(verify_token))
         conn.close()
         raise HTTPException(status_code=404, detail="文档不存在")
     
+    # 记录审计日志
+    log_audit(conn, token_data.get("user_id"), token_data["username"],
+              "DELETE_DOCUMENT", "document", doc_id, None, None, None)
+    
     c.execute("UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
@@ -1085,6 +1150,13 @@ async def set_permission(permission: PermissionCreate, token_data: dict = Depend
                         VALUES (?, ?, ?)""",
                      (permission.target_id, permission.resource_id, 1 if permission.can_read else 0))
     
+    # 记录审计日志
+    action_type = "GRANT" if permission.can_read else "REVOKE"
+    log_audit(conn, token_data.get("user_id"), token_data["username"],
+              f"{action_type}_PERMISSION", permission.resource_type, 
+              permission.resource_id, None,
+              f"目标: {permission.target_type}#{permission.target_id}", None)
+    
     conn.commit()
     conn.close()
     
@@ -1180,6 +1252,29 @@ async def get_access_logs(page: int = 1, limit: int = 50, token_data: dict = Dep
     logs = [dict(row) for row in c.fetchall()]
     
     c.execute("SELECT COUNT(*) as total FROM access_logs")
+    total = c.fetchone()["total"]
+    
+    conn.close()
+    return {"logs": logs, "total": total, "page": page, "limit": limit}
+
+@app.get("/api/admin/audit-logs")
+async def get_audit_logs(
+    page: int = 1,
+    limit: int = 50,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    offset = (page - 1) * limit
+    c.execute("""SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ? OFFSET ?""",
+              (limit, offset))
+    logs = [dict(row) for row in c.fetchall()]
+    
+    c.execute("SELECT COUNT(*) as total FROM audit_logs")
     total = c.fetchone()["total"]
     
     conn.close()
@@ -1287,11 +1382,24 @@ async def delete_user(user_id: int, token_data: dict = Depends(verify_token)):
         conn.close()
         raise HTTPException(status_code=400, detail="不能删除自己")
     
+    # 记录审计日志
+    log_audit(conn, token_data.get("user_id"), token_data["username"], 
+              "DELETE_USER", "user", user_id, user["username"], 
+              f"删除用户 {user[username]}", None)
+    
     c.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
     
     return {"message": "用户删除成功"}
+
+@app.post("/api/logout")
+async def logout():
+    """退出登录，清除 Cookie"""
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content={"message": "已退出登录"})
+    response.delete_cookie(key="auth_token")
+    return response
 
 @app.get("/api/health")
 async def health_check():

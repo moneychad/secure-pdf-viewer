@@ -49,6 +49,7 @@
                         <a href="#" class="nav-item admin-only" data-page="upload">📤 上传文档</a>
                         <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
                         <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
+                        <a href="#" class="nav-item admin-only" data-page="audit-logs">📋 审计日志</a>
                         <a href="#" class="nav-item admin-only" data-page="users">👥 用户管理</a>
                         <a href="#" class="nav-item admin-only" data-page="groups">👪 用户组管理</a>                        <a href="#" class="nav-item admin-only" data-page="permissions">🔐 权限配置</a>
                         <a href="#" class="nav-item" data-page="password">🔑 修改密码</a>
@@ -199,6 +200,28 @@
                                 <tbody id="fingerprints-body"></tbody>
                             </table>
                         </div>
+                    </div>
+
+                    <!-- 审计日志 -->
+                    <div id="page-audit-logs" class="content-page">
+                        <h2>审计日志</h2>
+                        <div class="table-container">
+                            <table id="audit-logs-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>用户</th>
+                                        <th>操作</th>
+                                        <th>目标类型</th>
+                                        <th>目标</th>
+                                        <th>详情</th>
+                                        <th>IP地址</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-logs-body"></tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="audit-logs-pagination"></div>
                     </div>
 
                     <!-- 用户管理 -->

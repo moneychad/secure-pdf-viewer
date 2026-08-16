@@ -865,3 +865,36 @@ tr:hover {
     font-weight: bold;
 }
 
+
+/* 审计日志样式 */
+.audit-action {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.audit-action:contains("DELETE") {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.audit-action:contains("CREATE") {
+    background: #d4edda;
+    color: #155724;
+}
+
+.audit-action:contains("UPDATE") {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.audit-action:contains("LOGIN") {
+    background: #cce5ff;
+    color: #004085;
+}
+
+.audit-action:contains("PERMISSION") {
+    background: #e2e3e5;
+    color: #383d41;
+}

@@ -4,7 +4,7 @@
 
 // 全局变量
 let currentUser = null;
-let authToken = null;
+let 
 let currentDocument = null;
 let currentPage = 1;
 let totalPages = 0;
@@ -99,9 +99,9 @@ async function handleLogin(e) {
         const data = await response.json();
         
         if (response.ok) {
-            authToken = data.token;
+            
             currentUser = data.user;
-            localStorage.setItem('token', authToken);
+            
             localStorage.setItem('user', JSON.stringify(currentUser));
             registerFingerprint().catch(e => console.error('指纹注册失败:', e));
             showMainPage();
@@ -113,10 +113,13 @@ async function handleLogin(e) {
     }
 }
 
-function handleLogout() {
-    authToken = null;
+async function handleLogout() {
+    try {
+        await fetch(API_BASE + "/logout", { method: "POST", credentials: "include" });
+    } catch (e) { console.error("Logout error:", e); }
+    
     currentUser = null;
-    localStorage.removeItem('token');
+    
     localStorage.removeItem('user');
     showLoginPage();
 }
@@ -1229,3 +1232,110 @@ async function modalUploadFiles(files) {
 }
 
 
+
+
+// ==================== XSS 防护工具 ====================
+
+// 安全的 DOM 操作方法
+function createElementSafe(tag, className, textContent) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (textContent) el.textContent = textContent;  // textContent 自动转义，防 XSS
+    return el;
+}
+
+// 清空容器并添加子元素
+function setChildrenSafe(container, children) {
+    container.innerHTML = "";  // 先清空
+    children.forEach(child => container.appendChild(child));
+}
+
+// 创建选项元素
+function createOptionSafe(value, text) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    return option;
+}
+
+// 修改 loadFolderOptions 函数，使用 DOM 方法
+const _originalLoadFolderOptions = loadFolderOptions;
+loadFolderOptions = async function(selectId) {
+    try {
+        const response = await fetch(API_BASE + "/folders", {
+            credentials: "include"
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            const select = document.getElementById(selectId);
+            // 清空现有选项
+            select.innerHTML = "";
+            
+            // 添加根目录选项
+            const rootOption = document.createElement("option");
+            rootOption.value = "1";
+            rootOption.textContent = "根目录";
+            select.appendChild(rootOption);
+            
+            // 添加其他目录选项
+            data.folders.forEach(folder => {
+                const option = document.createElement("option");
+                option.value = folder.id;
+                option.textContent = folder.name;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error("加载目录失败:", error);
+    }
+};
+
+
+// ==================== 审计日志 ====================
+
+async function loadAuditLogs(page = 1) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/audit-logs?page=${page}&limit=50`, {
+            credentials: "include"
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            renderAuditLogs(data.logs, data.total, data.page, data.limit);
+        }
+    } catch (error) {
+        console.error("加载审计日志失败:", error);
+    }
+}
+
+function renderAuditLogs(logs, total, page, limit) {
+    const tbody = document.getElementById("audit-logs-body");
+    
+    if (!logs || logs.length === 0) {
+        tbody.innerHTML = "<tr><td colspan=\"7\" style=\"text-align:center;\">暂无审计日志</td></tr>";
+        return;
+    }
+    
+    tbody.innerHTML = logs.map(log => `
+        <tr>
+            <td>${formatDate(log.timestamp)}</td>
+            <td>${escapeHtml(log.username)}</td>
+            <td><span class="audit-action">${escapeHtml(log.action)}</span></td>
+            <td>${escapeHtml(log.target_type || "-")}</td>
+            <td>${escapeHtml(log.target_name || log.target_id || "-")}</td>
+            <td>${escapeHtml(log.details || "-")}</td>
+            <td>${escapeHtml(log.ip_address || "-")}</td>
+        </tr>
+    `).join("");
+    
+    const totalPages = Math.ceil(total / limit);
+    const pagination = document.getElementById("audit-logs-pagination");
+    pagination.innerHTML = `
+        <button onclick="loadAuditLogs(${page - 1})" ${page <= 1 ? "disabled" : ""}>上一页</button>
+        <span>第 ${page} 页 / 共 ${totalPages} 页</span>
+        <button onclick="loadAuditLogs(${page + 1})" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+    `;
+}
