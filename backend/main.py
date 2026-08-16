@@ -372,9 +372,6 @@ async def get_users(token_data: dict = Depends(verify_token)):
 async def health_check():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
 
 class ChangePassword(BaseModel):
     old_password: str
@@ -405,3 +402,7 @@ async def change_password(
     conn.close()
     
     return {"message": "密码修改成功"}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
