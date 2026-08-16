@@ -1474,7 +1474,6 @@ function showPermissionModal(resourceType, resourceId, resourceName) {
     loadCurrentPermissions(resourceType, resourceId);
 }
 
-}
 
 function showBatchPermissionModal() {
     var count = selectedDocuments.size + selectedFolders.size;
