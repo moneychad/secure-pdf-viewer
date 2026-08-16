@@ -265,7 +265,7 @@
                         <h2>用户组管理</h2>
                         <div class="user-form">
                             <h3>创建用户组</h3>
-                            <form id="create-group-form">
+                            <form id="create-group-form" onsubmit="return createGroup(event)">
                                 <div class="form-row">
                                     <input type="text" id="new-group-name" placeholder="用户组名称" required>
                                     <input type="text" id="new-group-desc" placeholder="描述（可选）">
@@ -407,9 +407,9 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=1.1"></script>
-    <script src="/js/groups.js?v=1.1"></script>
-    <script src="/js/extend.js?v=1.1"></script>
+    <script src="/js/app.js?v=1.2"></script>
+    <script src="/js/groups.js?v=1.2"></script>
+    <script src="/js/extend.js?v=1.2"></script>
 
     <!-- 上传文档弹窗 -->
     <div id="upload-modal" class="modal hidden">

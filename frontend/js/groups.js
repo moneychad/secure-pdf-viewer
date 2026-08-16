@@ -49,12 +49,12 @@ function renderGroups(groups) {
 }
 
 async function createGroup(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     
     const name = document.getElementById('new-group-name').value.trim();
     const desc = document.getElementById('new-group-desc').value.trim();
     
-    if (!name) { alert('请输入用户组名称'); return; }
+    if (!name) { alert('请输入用户组名称'); return false; }
     
     try {
         const response = await fetch(API_BASE + '/groups', {
@@ -78,6 +78,7 @@ async function createGroup(e) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function editGroup(groupId) {
@@ -107,6 +108,7 @@ async function editGroup(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function deleteGroup(groupId) {
@@ -128,6 +130,7 @@ async function deleteGroup(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function showGroupMembers(groupId) {
@@ -158,6 +161,7 @@ async function showGroupMembers(groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function addGroupMember(username, groupId) {
@@ -194,6 +198,7 @@ async function addGroupMember(username, groupId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function removeGroupMember(username) {
@@ -230,6 +235,7 @@ async function removeGroupMember(username) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 // ==================== 权限配置 ====================
@@ -366,6 +372,7 @@ async function setFolderPermission(targetType, targetId, folderId, canRead) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function setDocumentPermission(targetType, targetId, docId, canRead) {
@@ -392,6 +399,7 @@ async function setDocumentPermission(targetType, targetId, docId, canRead) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 async function removeDocumentPermission(targetType, targetId, docId) {
@@ -410,6 +418,7 @@ async function removeDocumentPermission(targetType, targetId, docId) {
     } catch (error) {
         alert('网络错误，请重试');
     }
+    return false;
 }
 
 // 绑定事件
