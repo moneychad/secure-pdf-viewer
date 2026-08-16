@@ -508,6 +508,22 @@ def record_login_attempt(ip: str, success: bool):
 
 # ==================== 认证 API ====================
 
+@app.get("/api/users/me")
+async def get_current_user(token_data: dict = Depends(verify_token)):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT u.id, u.username, u.role, u.group_id, u.is_active, 
+                g.name as group_name
+                FROM users u
+                LEFT JOIN user_groups g ON u.group_id = g.id
+                WHERE u.username = ?""", (token_data["username"],))
+    user = c.fetchone()
+    conn.close()
+    
+    if user:
+        return dict(user)
+    raise HTTPException(status_code=404, detail="User not found")
+
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
     # 检查登录频率限制

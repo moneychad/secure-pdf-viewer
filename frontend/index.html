@@ -245,13 +245,14 @@
                             <table id="users-table">
                                 <thead>
                                     <tr>
-                                        <th>ID</th>
-                                        <th>用户名</th>
-                                        <th>角色</th>
-                                        <th>状态</th>
-                                        <th>创建时间</th>
-                                        <th>修改时间</th>
-                                        <th>上次登录</th>
+                                        <th onclick="sortUsers('id')" style="cursor:pointer">ID ↕</th>
+                                        <th onclick="sortUsers('username')" style="cursor:pointer">用户名 ↕</th>
+                                        <th onclick="sortUsers('role')" style="cursor:pointer">角色 ↕</th>
+                                        <th onclick="sortUsers('group_name')" style="cursor:pointer">用户组 ↕</th>
+                                        <th onclick="sortUsers('is_active')" style="cursor:pointer">状态 ↕</th>
+                                        <th onclick="sortUsers('created_at')" style="cursor:pointer">创建时间 ↕</th>
+                                        <th onclick="sortUsers('updated_at')" style="cursor:pointer">修改时间 ↕</th>
+                                        <th onclick="sortUsers('last_login')" style="cursor:pointer">上次登录 ↕</th>
                                         <th>操作</th>
                                     </tr>
                                 </thead>
@@ -412,7 +413,7 @@
             <input type="hidden" id="perm-resource-type">
             <input type="hidden" id="perm-resource-id">
             <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal(permission-modal)">取消</button>
+                <button class="btn-secondary" onclick="closeModal('permission-modal')">取消</button>
                 <button class="btn-primary" onclick="savePermission()">保存权限</button>
             </div>
         </div>
@@ -436,7 +437,7 @@
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal(batch-permission-modal)">取消</button>
+                <button class="btn-secondary" onclick="closeModal('batch-permission-modal')">取消</button>
                 <button class="btn-primary" onclick="saveBatchPermissions()">保存权限</button>
             </div>
         </div>

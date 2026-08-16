@@ -37,7 +37,7 @@ function renderGroups(groups) {
             '<td>' + group.id + '</td>' +
             '<td>' + escapeHtml(group.name) + '</td>' +
             '<td>' + escapeHtml(group.description || '-') + '</td>' +
-            '<td>' + group.member_count + ' 人</td>' +
+            '<td>' + (group.member_names ? group.member_names : '暂无成员') + '</td>' +
             '<td>' + formatDate(group.created_at) + '</td>' +
             '<td>' +
                 '<button class="btn-action btn-edit" onclick="editGroup(' + group.id + ')" title="编辑">✏️</button>' +
