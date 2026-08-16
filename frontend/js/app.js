@@ -1973,3 +1973,31 @@ async function saveEditUser(userId) {
         alert('网络错误，请重试');
     }
 }
+
+
+// ==================== 用户列表搜索过滤 ====================
+
+function filterUsers() {
+    var searchInputs = document.querySelectorAll('.col-search');
+    var filters = [];
+    searchInputs.forEach(function(input) {
+        filters.push(input.value.trim().toLowerCase());
+    });
+    
+    var rows = document.querySelectorAll('#users-body tr');
+    rows.forEach(function(row) {
+        var cells = row.querySelectorAll('td');
+        var visible = true;
+        
+        filters.forEach(function(filter, index) {
+            if (filter && cells[index]) {
+                var cellText = cells[index].textContent.toLowerCase();
+                if (cellText.indexOf(filter) === -1) {
+                    visible = false;
+                }
+            }
+        });
+        
+        row.style.display = visible ? '' : 'none';
+    });
+}

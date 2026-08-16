@@ -245,15 +245,26 @@
                             <table id="users-table">
                                 <thead>
                                     <tr>
-                                        <th onclick="sortUsers('id')" style="cursor:pointer">ID ↕</th>
-                                        <th onclick="sortUsers('username')" style="cursor:pointer">用户名 ↕</th>
-                                        <th onclick="sortUsers('role')" style="cursor:pointer">角色 ↕</th>
-                                        <th onclick="sortUsers('group_name')" style="cursor:pointer">用户组 ↕</th>
-                                        <th onclick="sortUsers('is_active')" style="cursor:pointer">状态 ↕</th>
-                                        <th onclick="sortUsers('created_at')" style="cursor:pointer">创建时间 ↕</th>
-                                        <th onclick="sortUsers('updated_at')" style="cursor:pointer">修改时间 ↕</th>
-                                        <th onclick="sortUsers('last_login')" style="cursor:pointer">上次登录 ↕</th>
+                                        <th>ID</th>
+                                        <th>用户名</th>
+                                        <th>角色</th>
+                                        <th>用户组</th>
+                                        <th>状态</th>
+                                        <th>创建时间</th>
+                                        <th>修改时间</th>
+                                        <th>上次登录</th>
                                         <th>操作</th>
+                                    </tr>
+                                    <tr class="search-row">
+                                        <td><input type="text" class="col-search" data-col="0" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="1" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="2" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="3" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="4" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="5" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="6" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="7" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td></td>
                                     </tr>
                                 </thead>
                                 <tbody id="users-body"></tbody>
@@ -458,10 +469,10 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=2.6"></script>
-    <script src="/js/groups.js?v=2.6"></script>
-    <script src="/js/extend.js?v=2.6"></script>
-    <script src="/js/permission.js?v=2.6"></script>
+    <script src="/js/app.js?v=2.7"></script>
+    <script src="/js/groups.js?v=2.7"></script>
+    <script src="/js/extend.js?v=2.7"></script>
+    <script src="/js/permission.js?v=2.7"></script>
 
     <!-- 上传文档弹窗 -->
     <div id="upload-modal" class="modal hidden">
