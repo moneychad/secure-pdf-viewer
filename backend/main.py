@@ -1218,7 +1218,14 @@ async def register_fingerprint(fingerprint: DeviceFingerprint, request: Request,
 async def log_access(log: AccessLog, request: Request, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
-    ip_address = request.client.host
+    
+    # 获取真实 IP 地址（考虑反向代理）
+    ip_address = request.headers.get("X-Real-IP") or                  request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or                  request.client.host or "unknown"
+    
+    # 如果 IP 是 localhost 或内网地址，尝试获取真实 IP
+    if ip_address in ("127.0.0.1", "localhost", ""):
+        ip_address = request.client.host or "unknown"
+    
     user_agent = request.headers.get("user-agent", "")
     
     c.execute("""INSERT INTO access_logs 

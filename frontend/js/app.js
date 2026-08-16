@@ -1341,3 +1341,23 @@ function renderAuditLogs(logs, total, page, limit) {
         <button onclick="loadAuditLogs(${page + 1})" ${page >= totalPages ? "disabled" : ""}>下一页</button>
     `;
 }
+
+// ==================== 页面离开事件 ====================
+
+// 记录最后一页的停留时间
+window.addEventListener("beforeunload", function() {
+    if (pageStartTime && currentDocument) {
+        const duration = Math.floor((Date.now() - pageStartTime) / 1000);
+        if (duration > 0) {
+            // 使用 sendBeacon 确保数据发送
+            const data = JSON.stringify({
+                document_id: currentDocument.id,
+                action: "page_view",
+                page_number: currentPage,
+                device_fingerprint: currentFingerprintHash || "unknown",
+                duration_seconds: duration
+            });
+            navigator.sendBeacon(API_BASE + "/access-log", data);
+        }
+    }
+});
