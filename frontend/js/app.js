@@ -164,7 +164,7 @@ function showPage(pageName) {
     if (pageName !== 'viewer' && pageStartTime && currentDocument) {
         var duration = Math.floor((Date.now() - pageStartTime) / 1000);
         if (duration > 0) {
-            // 使用同步 XHR 确保数据发送
+            // 使用同步 XHR 确保数据发送（只记录一次查看文档）
             try {
                 var xhr = new XMLHttpRequest();
                 xhr.open("POST", API_BASE + "/access-log", false);
@@ -721,7 +721,7 @@ async function viewDocument(docId, docName) {
                 renderPage(1);
             }
             
-            logAccess(docId, 'view');
+            // 记录查看（只记录一次，不在这里记录，由 showPage 记录）
         } else {
             alert('加载文档失败');
         }
@@ -770,10 +770,14 @@ async function renderPage(pageNum) {
     addWatermark(ctx, viewport.width, viewport.height);
     
     document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
+    
+    // 只在翻页时记录（不是初始加载）
+    if (currentPage !== pageNum) {
+        logAccess(currentDocument.id, 'page_view', pageNum);
+    }
+    
     currentPage = pageNum;
     pageStartTime = Date.now();
-    
-    logAccess(currentDocument.id, 'page_view', pageNum);
 }
 
 function addWatermark(ctx, width, height) {
