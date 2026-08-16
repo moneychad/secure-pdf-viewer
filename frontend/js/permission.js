@@ -3,7 +3,7 @@
  */
 
 // 权限弹窗相关变量
-var permTargetType = null;  // 'user' 或 'group'
+var permTargetType = null;
 var permTargetId = null;
 var permTargetName = null;
 
@@ -11,6 +11,63 @@ var permTargetName = null;
 var batchPermTargetType = null;
 var batchPermTargetId = null;
 var batchPermTargetName = null;
+
+// ==================== 通用函数 ====================
+
+// 加载所有用户和用户组
+function loadAllPermTargets(containerId, selectFn) {
+    fetch(API_BASE + '/search/users-and-groups?q=', {
+        credentials: 'include'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        var results = data.results || [];
+        renderPermResults(results, containerId, selectFn);
+    })
+    .catch(function(err) {
+        console.error('加载用户和用户组失败:', err);
+    });
+}
+
+// 渲染搜索结果（分两列显示）
+function renderPermResults(results, containerId, selectFn) {
+    var users = results.filter(function(r) { return r.type === 'user'; });
+    var groups = results.filter(function(r) { return r.type === 'group'; });
+    
+    var html = '<div class="perm-results-columns">';
+    
+    // 用户列
+    html += '<div class="perm-column">';
+    html += '<div class="perm-column-header">👤 用户</div>';
+    if (users.length > 0) {
+        users.forEach(function(item) {
+            html += '<div class="search-result-item" onclick="' + selectFn + '(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">';
+            html += '<span>' + escapeHtml(item.name) + '</span>';
+            html += '</div>';
+        });
+    } else {
+        html += '<div class="search-result-item"><span style="color:#999;">暂无用户</span></div>';
+    }
+    html += '</div>';
+    
+    // 用户组列
+    html += '<div class="perm-column">';
+    html += '<div class="perm-column-header">👥 用户组</div>';
+    if (groups.length > 0) {
+        groups.forEach(function(item) {
+            html += '<div class="search-result-item" onclick="' + selectFn + '(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">';
+            html += '<span>' + escapeHtml(item.name) + '</span>';
+            html += '</div>';
+        });
+    } else {
+        html += '<div class="search-result-item"><span style="color:#999;">暂无用户组</span></div>';
+    }
+    html += '</div>';
+    
+    html += '</div>';
+    
+    document.getElementById(containerId).innerHTML = html;
+}
 
 // ==================== 单个权限配置 ====================
 
@@ -20,22 +77,16 @@ function showPermissionModal(resourceType, resourceId, resourceName) {
     document.getElementById('perm-resource-type').value = resourceType;
     document.getElementById('perm-resource-id').value = resourceId;
     document.getElementById('perm-search-input').value = '';
-    document.getElementById('perm-search-results').innerHTML = '';
     document.getElementById('perm-selected-target').style.display = 'none';
-    
-    permTargetType = null;
-    permTargetId = null;
-    permTargetName = null;
-    
     document.getElementById('permission-modal').classList.remove('hidden');
+    loadAllPermTargets('perm-search-results', 'selectPermTarget');
 }
 
 // 搜索用户和用户组
 function searchPermTargets() {
     var query = document.getElementById('perm-search-input').value.trim();
-    
     if (query.length < 1) {
-        document.getElementById('perm-search-results').innerHTML = '';
+        loadAllPermTargets('perm-search-results', 'selectPermTarget');
         return;
     }
     
@@ -44,27 +95,7 @@ function searchPermTargets() {
     })
     .then(function(resp) { return resp.json(); })
     .then(function(data) {
-        var results = data.results || [];
-        var html = '';
-        
-        results.forEach(function(item) {
-            var typeLabel = item.type === 'user' ? '用户' : '用户组';
-            var typeClass = item.type === 'user' ? '' : 'group';
-            
-            html += '<div class="search-result-item" onclick="selectPermTarget(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name) + '\')">';
-            html += '<span class="search-result-type ' + typeClass + '">' + typeLabel + '</span>';
-            html += '<span>' + escapeHtml(item.name) + '</span>';
-            html += '</div>';
-        });
-        
-        if (results.length === 0) {
-            html = '<div class="search-result-item"><span style="color:#999;">未找到匹配项</span></div>';
-        }
-        
-        document.getElementById('perm-search-results').innerHTML = html;
-    })
-    .catch(function(err) {
-        console.error('搜索失败:', err);
+        renderPermResults(data.results || [], 'perm-search-results', 'selectPermTarget');
     });
 }
 
@@ -132,30 +163,22 @@ function savePermission() {
 // 显示批量权限弹窗
 function showBatchPermissionModal() {
     var count = selectedDocuments.size + selectedFolders.size;
-    
     if (count === 0) {
         alert('请先选择文件或目录');
         return;
     }
-    
     document.getElementById('batch-perm-count').textContent = '已选 ' + count + ' 个项目';
     document.getElementById('batch-perm-search').value = '';
-    document.getElementById('batch-perm-results').innerHTML = '';
     document.getElementById('batch-perm-selected').style.display = 'none';
-    
-    batchPermTargetType = null;
-    batchPermTargetId = null;
-    batchPermTargetName = null;
-    
     document.getElementById('batch-permission-modal').classList.remove('hidden');
+    loadAllPermTargets('batch-perm-results', 'selectBatchPermTarget');
 }
 
 // 搜索批量权限目标
 function searchBatchPermTargets() {
     var query = document.getElementById('batch-perm-search').value.trim();
-    
     if (query.length < 1) {
-        document.getElementById('batch-perm-results').innerHTML = '';
+        loadAllPermTargets('batch-perm-results', 'selectBatchPermTarget');
         return;
     }
     
@@ -164,27 +187,7 @@ function searchBatchPermTargets() {
     })
     .then(function(resp) { return resp.json(); })
     .then(function(data) {
-        var results = data.results || [];
-        var html = '';
-        
-        results.forEach(function(item) {
-            var typeLabel = item.type === 'user' ? '用户' : '用户组';
-            var typeClass = item.type === 'user' ? '' : 'group';
-            
-            html += '<div class="search-result-item" onclick="selectBatchPermTarget(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name) + '\')">';
-            html += '<span class="search-result-type ' + typeClass + '">' + typeLabel + '</span>';
-            html += '<span>' + escapeHtml(item.name) + '</span>';
-            html += '</div>';
-        });
-        
-        if (results.length === 0) {
-            html = '<div class="search-result-item"><span style="color:#999;">未找到匹配项</span></div>';
-        }
-        
-        document.getElementById('batch-perm-results').innerHTML = html;
-    })
-    .catch(function(err) {
-        console.error('搜索失败:', err);
+        renderPermResults(data.results || [], 'batch-perm-results', 'selectBatchPermTarget');
     });
 }
 
@@ -216,15 +219,10 @@ function saveBatchPermissions() {
         return;
     }
     
-    // 构建批量数据
     var items = [];
-    
-    // 添加文件
     selectedDocuments.forEach(function(docId) {
         items.push({ resource_type: 'document', resource_id: docId, can_read: true });
     });
-    
-    // 添加目录
     selectedFolders.forEach(function(folderId) {
         items.push({ resource_type: 'folder', resource_id: folderId, can_read: true });
     });
