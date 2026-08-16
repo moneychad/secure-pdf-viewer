@@ -1166,6 +1166,79 @@ async def set_permission(permission: PermissionCreate, token_data: dict = Depend
     
     return {"message": "权限设置成功"}
 
+class BatchPermissionItem(BaseModel):
+    resource_type: str
+    resource_id: int
+    can_read: bool = True
+
+class BatchPermissionRequest(BaseModel):
+    target_type: str
+    target_id: int
+    items: List[BatchPermissionItem]
+
+@app.post("/api/permissions/batch")
+async def batch_set_permissions(
+    batch: BatchPermissionRequest,
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以设置权限")
+    
+    conn = get_db()
+    c = conn.cursor()
+    
+    success_count = 0
+    for item in batch.items:
+        if item.resource_type == "folder":
+            if batch.target_type == "user":
+                c.execute("""INSERT OR REPLACE INTO user_folder_permissions (user_id, folder_id, can_read)
+                            VALUES (?, ?, ?)""",
+                         (batch.target_id, item.resource_id, 1 if item.can_read else 0))
+            elif batch.target_type == "group":
+                c.execute("""INSERT OR REPLACE INTO group_folder_permissions (group_id, folder_id, can_read)
+                            VALUES (?, ?, ?)""",
+                         (batch.target_id, item.resource_id, 1 if item.can_read else 0))
+        elif item.resource_type == "document":
+            if batch.target_type == "user":
+                c.execute("""INSERT OR REPLACE INTO user_document_permissions (user_id, document_id, can_read)
+                            VALUES (?, ?, ?)""",
+                         (batch.target_id, item.resource_id, 1 if item.can_read else 0))
+            elif batch.target_type == "group":
+                c.execute("""INSERT OR REPLACE INTO group_document_permissions (group_id, document_id, can_read)
+                            VALUES (?, ?, ?)""",
+                         (batch.target_id, item.resource_id, 1 if item.can_read else 0))
+        success_count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": f"成功设置 {success_count} 个权限"}
+
+@app.get("/api/search/users-and-groups")
+async def search_users_and_groups(
+    q: str = Query(default=""),
+    token_data: dict = Depends(verify_token)
+):
+    """模糊搜索用户和用户组"""
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 搜索用户
+    c.execute("""SELECT id, username as name, 'user' as type 
+                FROM users WHERE username LIKE ? AND is_active = 1 LIMIT 10""",
+              (f"%{q}%",))
+    users = [dict(row) for row in c.fetchall()]
+    
+    # 搜索用户组
+    c.execute("""SELECT id, name, 'group' as type 
+                FROM user_groups WHERE name LIKE ? LIMIT 10""",
+              (f"%{q}%",))
+    groups = [dict(row) for row in c.fetchall()]
+    
+    conn.close()
+    
+    return {"results": users + groups}
+
 @app.delete("/api/permissions/{target_type}/{target_id}/{resource_type}/{resource_id}")
 async def remove_permission(
     target_type: str, target_id: int, resource_type: str, resource_id: int,

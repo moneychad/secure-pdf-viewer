@@ -96,6 +96,7 @@
                             <span id="selected-count">已选 0 项</span>
                             <button class="btn-danger" onclick="batchDelete()">🗑️ 批量删除</button>
                             <button class="btn-secondary" onclick="showBatchMoveModal()">📁 批量移动</button>
+                            <button class="btn-primary" onclick="showBatchPermissionModal()">🔐 批量权限</button>
                         </div>
                         
                         <!-- 目录和文档列表 -->
@@ -392,6 +393,55 @@
     </div>
 
     <!-- 批量移动弹窗 -->
+    <!-- 单个权限配置弹窗 -->
+    <div id="permission-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3 id="permission-modal-title">配置权限</h3>
+            <div class="form-group">
+                <label>搜索用户或用户组</label>
+                <input type="text" id="perm-search-input" placeholder="输入用户名或用户组名搜索" oninput="searchPermTargets()">
+                <div id="perm-search-results" class="search-results"></div>
+            </div>
+            <div id="perm-selected-target" class="form-group" style="display:none;">
+                <label>已选择</label>
+                <div class="selected-target">
+                    <span id="perm-target-display"></span>
+                    <button class="btn-sm btn-secondary" onclick="clearPermTarget()">清除</button>
+                </div>
+            </div>
+            <input type="hidden" id="perm-resource-type">
+            <input type="hidden" id="perm-resource-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal(permission-modal)">取消</button>
+                <button class="btn-primary" onclick="savePermission()">保存权限</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量权限配置弹窗 -->
+    <div id="batch-permission-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>批量配置权限</h3>
+            <p id="batch-perm-count">已选 0 个项目</p>
+            <div class="form-group">
+                <label>搜索用户或用户组</label>
+                <input type="text" id="batch-perm-search" placeholder="输入用户名或用户组名搜索" oninput="searchBatchPermTargets()">
+                <div id="batch-perm-results" class="search-results"></div>
+            </div>
+            <div id="batch-perm-selected" class="form-group" style="display:none;">
+                <label>已选择</label>
+                <div class="selected-target">
+                    <span id="batch-perm-display"></span>
+                    <button class="btn-sm btn-secondary" onclick="clearBatchPermTarget()">清除</button>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal(batch-permission-modal)">取消</button>
+                <button class="btn-primary" onclick="saveBatchPermissions()">保存权限</button>
+            </div>
+        </div>
+    </div>
+
     <div id="batch-move-modal" class="modal hidden">
         <div class="modal-content">
             <h3>批量移动到目录</h3>
@@ -407,9 +457,10 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=1.4"></script>
-    <script src="/js/groups.js?v=1.4"></script>
-    <script src="/js/extend.js?v=1.4"></script>
+    <script src="/js/app.js?v=1.5"></script>
+    <script src="/js/groups.js?v=1.5"></script>
+    <script src="/js/extend.js?v=1.5"></script>
+    <script src="/js/permission.js?v=1.5"></script>
 
     <!-- 上传文档弹窗 -->
     <div id="upload-modal" class="modal hidden">

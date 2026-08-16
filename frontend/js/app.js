@@ -210,6 +210,7 @@ async function loadDocuments() {
 function renderFileList(folders, documents) {
     const tbody = document.getElementById('file-body');
     selectedDocuments.clear();
+    selectedFolders.clear();
     updateBatchBar();
     
     let html = '';
@@ -410,16 +411,24 @@ function toggleDocumentSelect(docId) {
 }
 
 function toggleSelectAll() {
-    const checkboxes = document.querySelectorAll('.doc-checkbox');
+    const checkboxes = document.querySelectorAll('.doc-checkbox, .folder-checkbox');
     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
     
     checkboxes.forEach(cb => {
         cb.checked = !allChecked;
-        const docId = parseInt(cb.value);
-        if (!allChecked) {
-            selectedDocuments.add(docId);
+        const id = parseInt(cb.value);
+        if (cb.classList.contains('folder-checkbox')) {
+            if (!allChecked) {
+                selectedFolders.add(id);
+            } else {
+                selectedFolders.delete(id);
+            }
         } else {
-            selectedDocuments.delete(docId);
+            if (!allChecked) {
+                selectedDocuments.add(id);
+            } else {
+                selectedDocuments.delete(id);
+            }
         }
     });
     
@@ -1367,3 +1376,226 @@ window.addEventListener("beforeunload", function() {
         }
     }
 });
+// ==================== 目录选中和权限功能 ====================
+
+var selectedFolders = new Set();
+
+function toggleFolderSelect(folderId) {
+    if (selectedFolders.has(folderId)) {
+        selectedFolders.delete(folderId);
+    } else {
+        selectedFolders.add(folderId);
+    }
+    updateBatchBar();
+}
+
+function updateBatchBar() {
+    var batchBar = document.getElementById('batch-bar');
+    var totalCount = selectedDocuments.size + selectedFolders.size;
+    
+    if (totalCount > 0) {
+        batchBar.style.display = 'flex';
+        document.getElementById('selected-count').textContent = '已选 ' + totalCount + ' 项';
+    } else {
+        batchBar.style.display = 'none';
+    }
+}
+
+function showPermissionModal(resourceType, resourceId, resourceName) {
+    document.getElementById('permission-modal-title').textContent = '配置权限: ' + resourceName;
+    document.getElementById('perm-resource-type').value = resourceType;
+    document.getElementById('perm-resource-id').value = resourceId;
+    document.getElementById('perm-search-input').value = '';
+    document.getElementById('perm-search-results').innerHTML = '';
+    document.getElementById('perm-selected-target').style.display = 'none';
+    document.getElementById('permission-modal').classList.remove('hidden');
+}
+
+function searchPermTargets() {
+    var query = document.getElementById('perm-search-input').value.trim();
+    if (query.length < 1) {
+        document.getElementById('perm-search-results').innerHTML = '';
+        return;
+    }
+    
+    fetch(API_BASE + '/search/users-and-groups?q=' + encodeURIComponent(query), {
+        credentials: 'include'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        var results = data.results || [];
+        var html = '';
+        
+        results.forEach(function(item) {
+            var typeLabel = item.type === 'user' ? '用户' : '用户组';
+            var typeClass = item.type === 'user' ? '' : 'group';
+            html += '<div class="search-result-item" onclick="selectPermTarget(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">';
+            html += '<span class="search-result-type ' + typeClass + '">' + typeLabel + '</span>';
+            html += '<span>' + escapeHtml(item.name) + '</span>';
+            html += '</div>';
+        });
+        
+        if (results.length === 0) {
+            html = '<div class="search-result-item"><span style="color:#999;">未找到匹配项</span></div>';
+        }
+        
+        document.getElementById('perm-search-results').innerHTML = html;
+    });
+}
+
+var permTargetType = null;
+var permTargetId = null;
+
+function selectPermTarget(type, id, name) {
+    permTargetType = type;
+    permTargetId = id;
+    var typeLabel = type === 'user' ? '用户' : '用户组';
+    document.getElementById('perm-target-display').textContent = typeLabel + ': ' + name;
+    document.getElementById('perm-selected-target').style.display = 'block';
+    document.getElementById('perm-search-results').innerHTML = '';
+    document.getElementById('perm-search-input').value = '';
+}
+
+function clearPermTarget() {
+    permTargetType = null;
+    permTargetId = null;
+    document.getElementById('perm-selected-target').style.display = 'none';
+}
+
+function savePermission() {
+    if (!permTargetType || !permTargetId) {
+        alert('请选择用户或用户组');
+        return;
+    }
+    
+    var resourceType = document.getElementById('perm-resource-type').value;
+    var resourceId = parseInt(document.getElementById('perm-resource-id').value);
+    
+    fetch(API_BASE + '/permissions', {
+        credentials: 'include',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            target_type: permTargetType,
+            target_id: permTargetId,
+            resource_type: resourceType,
+            resource_id: resourceId,
+            can_read: true
+        })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.message) {
+            alert('权限配置成功');
+            closeModal('permission-modal');
+        } else {
+            alert(data.detail || '配置失败');
+        }
+    });
+}
+
+// 批量权限
+function showBatchPermissionModal() {
+    var count = selectedDocuments.size + selectedFolders.size;
+    if (count === 0) {
+        alert('请先选择文件或目录');
+        return;
+    }
+    document.getElementById('batch-perm-count').textContent = '已选 ' + count + ' 个项目';
+    document.getElementById('batch-perm-search').value = '';
+    document.getElementById('batch-perm-results').innerHTML = '';
+    document.getElementById('batch-perm-selected').style.display = 'none';
+    document.getElementById('batch-permission-modal').classList.remove('hidden');
+}
+
+function searchBatchPermTargets() {
+    var query = document.getElementById('batch-perm-search').value.trim();
+    if (query.length < 1) {
+        document.getElementById('batch-perm-results').innerHTML = '';
+        return;
+    }
+    
+    fetch(API_BASE + '/search/users-and-groups?q=' + encodeURIComponent(query), {
+        credentials: 'include'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        var results = data.results || [];
+        var html = '';
+        
+        results.forEach(function(item) {
+            var typeLabel = item.type === 'user' ? '用户' : '用户组';
+            var typeClass = item.type === 'user' ? '' : 'group';
+            html += '<div class="search-result-item" onclick="selectBatchPermTarget(\'' + item.type + '\', ' + item.id + ', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">';
+            html += '<span class="search-result-type ' + typeClass + '">' + typeLabel + '</span>';
+            html += '<span>' + escapeHtml(item.name) + '</span>';
+            html += '</div>';
+        });
+        
+        if (results.length === 0) {
+            html = '<div class="search-result-item"><span style="color:#999;">未找到匹配项</span></div>';
+        }
+        
+        document.getElementById('batch-perm-results').innerHTML = html;
+    });
+}
+
+var batchPermTargetType = null;
+var batchPermTargetId = null;
+
+function selectBatchPermTarget(type, id, name) {
+    batchPermTargetType = type;
+    batchPermTargetId = id;
+    var typeLabel = type === 'user' ? '用户' : '用户组';
+    document.getElementById('batch-perm-display').textContent = typeLabel + ': ' + name;
+    document.getElementById('batch-perm-selected').style.display = 'block';
+    document.getElementById('batch-perm-results').innerHTML = '';
+    document.getElementById('batch-perm-search').value = '';
+}
+
+function clearBatchPermTarget() {
+    batchPermTargetType = null;
+    batchPermTargetId = null;
+    document.getElementById('batch-perm-selected').style.display = 'none';
+}
+
+function saveBatchPermissions() {
+    if (!batchPermTargetType || !batchPermTargetId) {
+        alert('请选择用户或用户组');
+        return;
+    }
+    
+    var items = [];
+    selectedDocuments.forEach(function(docId) {
+        items.push({ resource_type: 'document', resource_id: docId, can_read: true });
+    });
+    selectedFolders.forEach(function(folderId) {
+        items.push({ resource_type: 'folder', resource_id: folderId, can_read: true });
+    });
+    
+    if (items.length === 0) {
+        alert('请先选择文件或目录');
+        return;
+    }
+    
+    fetch(API_BASE + '/permissions/batch', {
+        credentials: 'include',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            target_type: batchPermTargetType,
+            target_id: batchPermTargetId,
+            items: items
+        })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.message) {
+            alert(data.message);
+            closeModal('batch-permission-modal');
+            loadDocuments();
+        } else {
+            alert(data.detail || '配置失败');
+        }
+    });
+}
