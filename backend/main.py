@@ -254,7 +254,8 @@ class BatchDelete(BaseModel):
     document_ids: List[int]
 
 class BatchMove(BaseModel):
-    document_ids: List[int]
+    document_ids: List[int] = []
+    folder_ids: List[int] = []
     folder_id: int
 
 class PermissionCreate(BaseModel):
@@ -836,6 +837,7 @@ async def list_folders(
     if token_data.get("role") == "admin":
         c.execute("""SELECT f.*, u.username as creator_name,
                     (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
+                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count,
                     (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
                     FROM folders f 
                     LEFT JOIN users u ON f.created_by = u.username
@@ -851,6 +853,7 @@ async def list_folders(
         placeholders = ','.join(['?' for _ in accessible_ids])
         c.execute(f"""SELECT f.*, u.username as creator_name,
                     (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
+                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count,
                     (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
                     FROM folders f 
                     LEFT JOIN users u ON f.created_by = u.username
@@ -1266,8 +1269,8 @@ async def batch_move_documents(batch: BatchMove, token_data: dict = Depends(veri
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以移动文档")
     
-    if not batch.document_ids:
-        raise HTTPException(status_code=400, detail="请选择要移动的文档")
+    if not batch.document_ids and not batch.folder_ids:
+        raise HTTPException(status_code=400, detail="请选择要移动的文档或目录")
     
     conn = get_db()
     c = conn.cursor()
@@ -1277,14 +1280,54 @@ async def batch_move_documents(batch: BatchMove, token_data: dict = Depends(veri
         conn.close()
         raise HTTPException(status_code=404, detail="目标目录不存在")
     
-    placeholders = ','.join(['?' for _ in batch.document_ids])
-    c.execute(f"UPDATE documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
-              [batch.folder_id] + batch.document_ids)
-    moved_count = c.rowcount
+    # 检查目录循环引用：不能把目录移到自己或自己的子目录下
+    if batch.folder_ids:
+        def get_descendant_ids(parent_id):
+            ids = set()
+            c.execute("SELECT id FROM folders WHERE parent_id = ? AND is_active = 1", (parent_id,))
+            for row in c.fetchall():
+                ids.add(row[0])
+                ids.update(get_descendant_ids(row[0]))
+            return ids
+
+        for fid in batch.folder_ids:
+            if fid == batch.folder_id:
+                conn.close()
+                raise HTTPException(status_code=400, detail="不能将目录移动到自身")
+            descendants = get_descendant_ids(fid)
+            if batch.folder_id in descendants:
+                conn.close()
+                raise HTTPException(status_code=400, detail="不能将目录移动到其子目录下")
+            if fid == 1:
+                conn.close()
+                raise HTTPException(status_code=400, detail="不能移动根目录")
+    
+    result_doc_count = 0
+    result_folder_count = 0
+    
+    # 移动文档
+    if batch.document_ids:
+        placeholders = ','.join(['?' for _ in batch.document_ids])
+        c.execute(f"UPDATE documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+                  [batch.folder_id] + batch.document_ids)
+        result_doc_count = c.rowcount
+    
+    # 移动目录
+    if batch.folder_ids:
+        for fid in batch.folder_ids:
+            c.execute("UPDATE folders SET parent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                      (batch.folder_id, fid))
+            result_folder_count += 1
+    
     conn.commit()
     conn.close()
     
-    return {"message": f"成功移动 {moved_count} 个文档"}
+    parts = []
+    if result_doc_count > 0:
+        parts.append(f"{result_doc_count} 个文档")
+    if result_folder_count > 0:
+        parts.append(f"{result_folder_count} 个目录")
+    return {"message": f"成功移动 {"、".join(parts)}"}
 
 @app.put("/api/documents/{doc_id}/move")
 async def move_document(doc_id: int, move: DocumentMove, token_data: dict = Depends(verify_token)):

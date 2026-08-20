@@ -263,6 +263,7 @@ async function loadDocuments() {
 function renderFileList(folders, documents) {
     const tbody = document.getElementById('file-body');
     selectedDocuments.clear();
+            selectedFolders.clear();
     selectedFolders.clear();
     updateBatchBar();
     
@@ -276,7 +277,7 @@ function renderFileList(folders, documents) {
                 <td class="col-icon">📁</td>
                 <td class="file-name" onclick="navigateToFolder(${folder.id}, '${escapeHtml(folder.name)}')">
                     ${escapeHtml(folder.name)}
-                    <span class="file-count">(${folder.doc_count} 个文件)</span>
+                    <span class="file-count">(${folder.subfolder_count} 个目录, ${folder.doc_count} 个文件)</span>
                 </td>
                 <td class="col-size">${formatFileSize(folder.total_size)}</td>
                 <td class="col-creator">${escapeHtml(folder.creator_name || '-')}</td>
@@ -540,6 +541,7 @@ async function batchDelete() {
         
         if (response.ok) {
             selectedDocuments.clear();
+            selectedFolders.clear();
             loadDocuments();
         } else {
             alert(data.detail || '删除失败');
@@ -599,6 +601,7 @@ async function batchMove() {
             },
             body: JSON.stringify({ 
                 document_ids: Array.from(selectedDocuments),
+                folder_ids: Array.from(selectedFolders),
                 folder_id: parseInt(folderId)
             })
         });
@@ -608,6 +611,7 @@ async function batchMove() {
         if (response.ok) {
             closeModal('batch-move-modal');
             selectedDocuments.clear();
+            selectedFolders.clear();
             loadDocuments();
         } else {
             alert(data.detail || '移动失败');
