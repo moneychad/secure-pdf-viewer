@@ -434,7 +434,7 @@ async function renameFolder() {
 }
 
 async function deleteFolder(folderId) {
-    if (!confirm('确定要删除此目录吗？目录下的文件将被移到根目录。')) return;
+    if (!confirm('确定要删除此目录吗？目录及其所有子目录和文件将被永久删除。')) return;
     
     try {
         const response = await fetch(`${API_BASE}/folders/${folderId}`, {
@@ -806,16 +806,19 @@ async function renderPage(pageNum) {
 function addWatermark(ctx, width, height) {
     const username = currentUser ? currentUser.username : 'Unknown';
     const timestamp = new Date().toLocaleString('zh-CN');
-    const watermarkText = `${username} | ${timestamp}`;
+    const line1 = `${username} | ${timestamp}`;
+    const line2 = '联拓海洋内部资料，严禁外泄';
     
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-    ctx.font = '20px Arial';
     ctx.rotate(-20 * Math.PI / 180);
     
-    for (let y = -height; y < height * 2; y += 100) {
-        for (let x = -width; x < width * 2; x += 300) {
-            ctx.fillText(watermarkText, x, y);
+    for (let y = -height; y < height * 2; y += 120) {
+        for (let x = -width; x < width * 2; x += 350) {
+            ctx.font = '18px Arial';
+            ctx.fillText(line1, x, y);
+            ctx.font = 'bold 22px Arial';
+            ctx.fillText(line2, x, y + 26);
         }
     }
     
@@ -1329,6 +1332,93 @@ async function modalUploadFiles(files) {
 
 
 
+
+// ==================== 目录上传 ====================
+
+function showDirUploadModal() {
+    const folderName = getCurrentFolderName();
+    document.getElementById('dir-upload-target-info').textContent = '目标目录：' + folderName;
+    document.getElementById('dir-upload-status').innerHTML = '';
+    document.getElementById('dir-upload-modal').classList.remove('hidden');
+
+    const fileInput = document.getElementById('dir-file-input');
+    fileInput.onchange = function() {
+        if (this.files.length > 0) {
+            validateAndUploadDir(this.files);
+        }
+    };
+}
+
+async function validateAndUploadDir(files) {
+    const statusEl = document.getElementById('dir-upload-status');
+
+    const allFiles = Array.from(files);
+    const pdfFiles = [];
+
+    for (const file of allFiles) {
+        const relPath = file.webkitRelativePath || file.name;
+        if (file.name.toLowerCase().endsWith('.pdf')) {
+            pdfFiles.push({ file, relPath });
+        }
+    }
+
+    if (pdfFiles.length === 0) {
+        statusEl.innerHTML = '<span style="color:#e74c3c;">目录中没有找到 PDF 文件</span>';
+        document.getElementById('dir-file-input').value = '';
+        return;
+    }
+
+    statusEl.innerHTML = '<span style="color:#3498db;">正在上传 ' + pdfFiles.length + ' 个 PDF 文件...</span>';
+
+    const formData = new FormData();
+    const paths = [];
+
+    for (const item of pdfFiles) {
+        formData.append('files', item.file);
+        paths.push(item.relPath);
+    }
+
+    formData.append('relative_paths', JSON.stringify(paths));
+
+    try {
+        const response = await fetch(API_BASE + '/documents/upload-directory?folder_id=' + currentFolderId, {
+            credentials: 'include',
+            method: 'POST',
+            body: formData
+        });
+
+        const rawText = await response.text();
+        let result;
+        try {
+            result = JSON.parse(rawText);
+        } catch(e) {
+            statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 服务器返回异常（HTTP ' + response.status + '），请联系管理员</span>';
+            document.getElementById("dir-file-input").value = "";
+            return;
+        }
+
+        if (response.ok) {
+            let html = '<span style="color:#27ae60;">✅ ' + result.message + '</span>';
+            if (result.errors && result.errors.length > 0) {
+                html += '<div style="color:#e74c3c;margin-top:8px;text-align:left;">';
+                html += '<b>部分文件上传失败：</b><ul>';
+                for (const err of result.errors) {
+                    html += '<li style="font-size:12px;">' + escapeHtml(err) + '</li>';
+                }
+                html += '</ul></div>';
+            }
+            statusEl.innerHTML = html;
+            loadDocuments();
+        } else {
+            var errMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : (result.detail || '未知错误');
+            statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 上传失败：' + escapeHtml(errMsg) + '</span>';
+        }
+    } catch (error) {
+        statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 上传出错：' + escapeHtml(error.message) + '</span>';
+    }
+
+    document.getElementById('dir-file-input').value = '';
+}
 
 // ==================== XSS 防护工具 ====================
 

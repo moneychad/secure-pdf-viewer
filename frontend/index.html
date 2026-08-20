@@ -12,7 +12,9 @@
         <!-- 登录页面 -->
         <div id="login-page" class="page">
             <div class="login-container">
-                <h1>🔒 安全文档共享平台</h1>
+                <div class="login-logo-area">
+                    <img src="/assets/logo_login.png" alt="AUV-X Technologies" class="login-page-logo">
+                </div>
                 <form id="login-form">
                     <div class="form-group">
                         <label>用户名</label>
@@ -32,7 +34,9 @@
         <div id="main-page" class="page hidden">
             <header>
                 <div class="header-left">
-                    <h1>🔒 安全文档共享平台</h1>
+                    <div class="header-brand">
+                        <img src="/assets/logo_header.png" alt="AUV-X" class="header-logo-img">
+                    </div>
                 </div>
                 <div class="header-right">
                     <span id="current-user"></span>
@@ -62,8 +66,9 @@
                         <div class="page-header">
                             <h2>文档管理</h2>
                             <div class="page-actions">
-                                <button class="btn-primary admin-only" onclick="showCreateFolderModal()">📁 新建目录</button>
-                            <button class="btn-primary admin-only" onclick="showUploadModal()">📤 上传文档</button>
+                                <button class="btn-primary admin-only" onclick="showCreateFolderModal()">&#128193; 新建目录</button>
+                            <button class="btn-primary admin-only" onclick="showUploadModal()">&#128228; 上传文档</button>
+                            <button class="btn-primary admin-only" onclick="showDirUploadModal()">&#128194; 上传目录</button>
                             </div>
                         </div>
                         
@@ -469,12 +474,32 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=2.8"></script>
-    <script src="/js/groups.js?v=2.8"></script>
-    <script src="/js/extend.js?v=2.8"></script>
-    <script src="/js/permission.js?v=2.8"></script>
+    <script src="/js/app.js?v=4.4"></script>
+    <script src="/js/groups.js?v=4.4"></script>
+    <script src="/js/extend.js?v=4.4"></script>
+    <script src="/js/permission.js?v=4.4"></script>
 
     <!-- 上传文档弹窗 -->
+    <!-- 上传目录弹窗 -->
+    <div id="dir-upload-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>上传目录到当前位置</h3>
+            <p class="upload-target-info" id="dir-upload-target-info">目标目录：根目录</p>
+            <div class="upload-area" id="dir-drop-zone">
+                <p>&#128194; 选择要上传的文件夹</p>
+                <p style="font-size:12px;color:#999;">仅支持包含 PDF 文件的目录，如有非 PDF 文件将自动拦截</p>
+                <input type="file" id="dir-file-input" webkitdirectory directory hidden>
+                <button type="button" class="btn-primary" onclick="document.getElementById('dir-file-input').click()">
+                    选择文件夹
+                </button>
+            </div>
+            <div id="dir-upload-status"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('dir-upload-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <div id="upload-modal" class="modal hidden">
         <div class="modal-content" style="min-width: 500px;">
             <h3>上传文档到当前目录</h3>
@@ -493,5 +518,7 @@
             </div>
         </div>
     </div>
+    <!-- 全局页脚 -->
+    <div class="site-copyright">联拓海洋版权所有&copy;2024-2026 未经书面允许，不得泄露</div>
 </body>
 </html>

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Query
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, Query
 
 # SQL 更新字段白名单（防止注入）
 ALLOWED_USER_UPDATE_FIELDS = {"username", "password_hash", "role", "group_id", "is_active"}
@@ -940,12 +940,25 @@ async def delete_folder(folder_id: int, token_data: dict = Depends(verify_token)
         conn.close()
         raise HTTPException(status_code=404, detail="目录不存在")
     
+    # 递归收集所有子目录 ID
+    def get_all_child_folder_ids(parent_id):
+        ids = [parent_id]
+        c.execute("SELECT id FROM folders WHERE parent_id = ? AND is_active = 1", (parent_id,))
+        for row in c.fetchall():
+            ids.extend(get_all_child_folder_ids(row[0]))
+        return ids
+
+    all_folder_ids = get_all_child_folder_ids(folder_id)
+    placeholders = ",".join("?" * len(all_folder_ids))
+
     # 记录审计日志
     log_audit(conn, token_data.get("user_id"), token_data["username"],
               "DELETE_FOLDER", "folder", folder_id, None, None, None)
-    
-    c.execute("UPDATE documents SET folder_id = 1 WHERE folder_id = ?", (folder_id,))
-    c.execute("UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (folder_id,))
+
+    # 删除所有目录下的文档（标记为非活跃）
+    c.execute(f"UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE folder_id IN ({placeholders})", all_folder_ids)
+    # 删除所有子目录（标记为非活跃）
+    c.execute(f"UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})", all_folder_ids)
     conn.commit()
     conn.close()
     
@@ -1054,6 +1067,122 @@ async def upload_document(
     conn.close()
     
     return {"document_id": doc_id, "message": "上传成功"}
+
+class DirUploadItem(BaseModel):
+    relative_path: str  # e.g. "subfolder/file.pdf"
+
+@app.post("/api/documents/upload-directory")
+async def upload_directory(
+    files: List[UploadFile] = File(...),
+    relative_paths: str = Form(...),
+    folder_id: int = Query(default=1),
+    token_data: dict = Depends(verify_token)
+):
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以上传文档")
+
+    import json
+    try:
+        paths = json.loads(relative_paths)
+    except:
+        raise HTTPException(status_code=400, detail="relative_paths 格式错误")
+
+    if len(files) != len(paths):
+        raise HTTPException(status_code=400, detail="文件数量与路径数量不匹配")
+
+    # 过滤非PDF文件（前端已过滤，后端做容错）
+    pdf_files = []
+    pdf_paths = []
+    for i, f in enumerate(files):
+        if f.filename.lower().endswith('.pdf'):
+            pdf_files.append(f)
+            pdf_paths.append(paths[i])
+    files = pdf_files
+    paths = pdf_paths
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # 验证目标目录存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+
+    # 解析目录结构，创建需要的子目录
+    # paths like: ["dir/file1.pdf", "dir/sub/file2.pdf", "file3.pdf"]
+    # 提取所有唯一的子目录路径
+    folder_cache = {}  # "relative_dir_path" -> folder_id
+    folder_cache[""] = folder_id  # 根目录
+
+    def get_or_create_folder(dir_parts, parent_id):
+        """递归创建子目录，返回最终 folder_id"""
+        if not dir_parts:
+            return parent_id
+        current = dir_parts[0]
+        remaining = dir_parts[1:]
+        cache_key = "/".join(dir_parts)
+        if cache_key in folder_cache:
+            return folder_cache[cache_key]
+        # 查找是否已存在
+        c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND is_active = 1",
+                  (current, parent_id))
+        row = c.fetchone()
+        if row:
+            fid = row[0]
+        else:
+            c.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)",
+                      (current, parent_id, token_data["username"]))
+            fid = c.lastrowid
+        result = get_or_create_folder(remaining, fid)
+        folder_cache[cache_key] = result
+        return result
+
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    success_count = 0
+    fail_count = 0
+    errors = []
+
+    for i, f in enumerate(files):
+        try:
+            rel_path = paths[i]
+            parts = rel_path.replace("\\", "/").split("/")
+            dir_parts = parts[:-1]
+            filename = parts[-1]
+
+            # 获取或创建目标目录
+            target_folder_id = get_or_create_folder(dir_parts, folder_id)
+
+            # 读取文件内容
+            content = await f.read()
+            if len(content) > MAX_FILE_SIZE:
+                errors.append(f"{rel_path}: 文件过大")
+                fail_count += 1
+                continue
+
+            # 保存文件
+            file_hash = hashlib.md5(f"{filename}{datetime.now()}{i}".encode()).hexdigest()
+            stored_name = f"{file_hash}.pdf"
+            file_path = UPLOAD_DIR / stored_name
+            with open(file_path, "wb") as fp:
+                fp.write(content)
+
+            c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
+                      (stored_name, filename, len(content), target_folder_id, token_data["username"]))
+            success_count += 1
+        except Exception as e:
+            errors.append(f"{paths[i]}: {str(e)}")
+            fail_count += 1
+
+    conn.commit()
+    conn.close()
+
+    result = {"success": success_count, "fail": fail_count, "message": f"上传完成：{success_count} 个成功"}
+    if fail_count > 0:
+        result["errors"] = errors
+    return result
+
+
 
 @app.get("/api/documents/{doc_id}/view")
 async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
