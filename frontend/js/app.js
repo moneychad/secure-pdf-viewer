@@ -9,7 +9,7 @@ let authToken = null;
 let currentDocument = null;
 let currentPage = 1;
 let totalPages = 0;
-let pdfDoc = null;
+// pdfDoc 已移除（服务端渲染模式不需要）
 let pageStartTime = null;
 let currentFingerprintHash = null;
 let currentFolderId = 1;  // 当前目录ID
@@ -779,76 +779,44 @@ async function viewDocument(docId, docName) {
     document.getElementById('viewer-doc-name').textContent = docName;
     showPage('viewer');
     
-    if (typeof pdfjsLib !== 'undefined') {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
-    
+    // 服务端渲染模式：先获取总页数，再加载第1页
     try {
-        const response = await fetch(`${API_BASE}/documents/${docId}/view`, {
+        const pagesResp = await fetch(`${API_BASE}/documents/${docId}/pages`, {
             credentials: 'include',
         });
-        
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            
-            if (typeof pdfjsLib !== 'undefined') {
-                pdfDoc = await pdfjsLib.getDocument(url).promise;
-                totalPages = pdfDoc.numPages;
-                renderPage(1);
-            }
-            
-            // 记录查看（只记录一次，不在这里记录，由 showPage 记录）
+        if (pagesResp.ok) {
+            const pagesData = await pagesResp.json();
+            totalPages = pagesData.total_pages;
         } else {
-            alert('加载文档失败');
+            totalPages = 1;
         }
-    } catch (error) {
-        alert('加载文档失败: ' + error.message);
+    } catch (e) {
+        totalPages = 1;
     }
+    
+    renderPage(1);
 }
 
 async function renderPage(pageNum) {
-    if (!pdfDoc) return;
+    if (!currentDocument) return;
     
     if (pageStartTime && currentDocument) {
         const duration = Math.floor((Date.now() - pageStartTime) / 1000);
         logAccess(currentDocument.id, 'page_view', currentPage, duration);
     }
     
-    const page = await pdfDoc.getPage(pageNum);
+    const img = document.getElementById('pdf-viewer-img');
+    if (img) {
+        // 服务端渲染：直接加载指定页的图片（带水印）
+        img.src = `${API_BASE}/documents/${currentDocument.id}/view?page=${pageNum}&t=${Date.now()}`;
+        img.onload = function() {
+            document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
+        };
+        img.onerror = function() {
+            document.getElementById('viewer-page-info').textContent = '加载失败';
+        };
+    }
     
-    // 获取容器宽度，自适应缩放
-    const container = document.querySelector('.pdf-viewer-wrapper');
-    const containerWidth = container ? container.clientWidth - 40 : 800;  // 减去边距
-    
-    // 获取原始页面尺寸
-    const originalViewport = page.getViewport({ scale: 1 });
-    
-    // 计算自适应缩放比例（限制在 0.5 到 2.0 之间）
-    let scale = Math.min(containerWidth / originalViewport.width, 2.0);
-    scale = Math.max(scale, 0.5);
-    
-    const viewport = page.getViewport({ scale });
-    
-    const canvas = document.getElementById('pdf-canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // 高清显示
-    const pixelRatio = window.devicePixelRatio || 1;
-    canvas.width = viewport.width * pixelRatio;
-    canvas.height = viewport.height * pixelRatio;
-    canvas.style.width = viewport.width + 'px';
-    canvas.style.height = viewport.height + 'px';
-    
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    
-    addWatermark(ctx, viewport.width, viewport.height);
-    
-    document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
-    
-    // 只在翻页时记录（不是初始加载）
     if (currentPage !== pageNum) {
         logAccess(currentDocument.id, 'page_view', pageNum);
     }
@@ -857,27 +825,7 @@ async function renderPage(pageNum) {
     pageStartTime = Date.now();
 }
 
-function addWatermark(ctx, width, height) {
-    const username = currentUser ? currentUser.username : 'Unknown';
-    const timestamp = new Date().toLocaleString('zh-CN');
-    const line1 = username;
-    const line2 = '圆满闯世界';
-    
-    ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-    ctx.rotate(-20 * Math.PI / 180);
-    
-    for (let y = -height; y < height * 2; y += 120) {
-        for (let x = -width; x < width * 2; x += 350) {
-            ctx.font = '18px Arial';
-            ctx.fillText(line1, x, y);
-            ctx.font = 'bold 22px Arial';
-            ctx.fillText(line2, x, y + 26);
-        }
-    }
-    
-    ctx.restore();
-}
+// 水印已移至服务端渲染（pymupdf + Pillow 叠加在图片上，不可分离）
 
 // ==================== 其他功能 ====================
 

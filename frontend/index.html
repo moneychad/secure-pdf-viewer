@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>安全文档共享平台</title>
     <link rel="stylesheet" href="/css/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <div id="app">
@@ -137,7 +136,7 @@
                                 <button id="next-page" class="btn-nav">下一页 ▶</button>
                             </div>
                             <div class="pdf-viewer-wrapper">
-                                <canvas id="pdf-canvas"></canvas>
+                                <img id="pdf-viewer-img" style="max-width:100%;height:auto;display:block;margin:0 auto;" alt="文档内容">
                                 <div id="watermark-overlay"></div>
                             </div>
                         </div>
@@ -474,10 +473,10 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=5.0"></script>
-    <script src="/js/groups.js?v=5.0"></script>
-    <script src="/js/extend.js?v=5.0"></script>
-    <script src="/js/permission.js?v=5.0"></script>
+    <script src="/js/app.js?v=6.0"></script>
+    <script src="/js/groups.js?v=6.0"></script>
+    <script src="/js/extend.js?v=6.0"></script>
+    <script src="/js/permission.js?v=6.0"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->

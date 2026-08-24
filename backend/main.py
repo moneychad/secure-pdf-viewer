@@ -1187,52 +1187,148 @@ async def upload_directory(
 
 
 
-@app.get("/api/documents/{doc_id}/view")
-async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
+@app.get("/api/documents/{doc_id}/pages")
+async def get_document_pages(doc_id: int, token_data: dict = Depends(verify_token)):
+    """获取文档总页数（服务端渲染模式）"""
     conn = get_db()
     c = conn.cursor()
-    
     user_id = token_data.get("user_id")
-    
-    # 检查权限
     if token_data.get("role") != "admin":
         if not check_document_permission(user_id, doc_id, conn):
             conn.close()
             raise HTTPException(status_code=403, detail="没有权限访问此文档")
-    
-    c.execute("SELECT filename, original_name FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    c.execute("SELECT filename FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
     doc = c.fetchone()
     conn.close()
-    
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
-    
     file_path = UPLOAD_DIR / doc["filename"]
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    
+    try:
+        import pymupdf
+        pdf = pymupdf.open(str(file_path))
+        total = len(pdf)
+        pdf.close()
+        return {"total_pages": total}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文档失败: {str(e)}")
+
+
+@app.get("/api/documents/{doc_id}/view")
+async def view_document(
+    doc_id: int,
+    page: int = 1,
+    dpi: int = 150,
+    token_data: dict = Depends(verify_token)
+):
+    """服务端渲染：将 PDF 指定页渲染为带水印的 PNG 图片，原始 PDF 永远不离开服务器"""
+    conn = get_db()
+    c = conn.cursor()
+    user_id = token_data.get("user_id")
+    username = token_data.get("username", "unknown")
+    if token_data.get("role") != "admin":
+        if not check_document_permission(user_id, doc_id, conn):
+            conn.close()
+            raise HTTPException(status_code=403, detail="没有权限访问此文档")
+    c.execute("SELECT filename, original_name FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    doc = c.fetchone()
+    conn.close()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    file_path = UPLOAD_DIR / doc["filename"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
     # 记录访问日志
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT INTO access_logs (user_id, username, document_id, action, ip_address) VALUES (?, ?, ?, ?, ?)",
-              (user_id, token_data["username"], doc_id, "view", "unknown"))
+              (user_id, username, doc_id, "view", "unknown"))
     conn.commit()
     conn.close()
-    
-    # 禁止下载：不设置 filename，添加 inline + 禁止缓存 header
-    with open(file_path, "rb") as f:
-        pdf_bytes = f.read()
-    from fastapi.responses import Response
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": "inline",  # 不带 filename，阻止浏览器下载提示
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "X-Content-Type-Options": "nosniff",
-        }
-    )
+
+    try:
+        import pymupdf
+        from datetime import datetime
+        pdf = pymupdf.open(str(file_path))
+        if page < 1 or page > len(pdf):
+            pdf.close()
+            raise HTTPException(status_code=400, detail=f"页码无效，文档共 {len(pdf)} 页")
+        pdf_page = pdf[page - 1]
+        # 渲染为像素图
+        mat = pymupdf.Matrix(dpi / 72, dpi / 72)
+        pix = pdf_page.get_pixmap(matrix=mat, alpha=False)
+        # 用 pymupdf 的 Pixmap 转为 PIL Image 叠加水印
+        from PIL import Image, ImageDraw, ImageFont
+        import io
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        pdf.close()
+        # 叠加水印
+        draw = ImageDraw.Draw(img)
+        now_str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        wm_text1 = f"{username} | {now_str}"
+        wm_text2 = "内部资料，严禁外泄"
+        # 水印字体大小随 DPI 缩放
+        font_size = max(16, int(dpi * 0.12))
+        # 优先使用中文字体
+        cn_font_paths = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+        ]
+        font_path = None
+        for fp in cn_font_paths:
+            import os
+            if os.path.exists(fp):
+                font_path = fp
+                break
+        try:
+            if font_path:
+                font = ImageFont.truetype(font_path, font_size)
+                font_small = ImageFont.truetype(font_path, int(font_size * 0.7))
+            else:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", int(font_size * 0.7))
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = font
+        # 半透明水印：在图片上多处绘制
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        watermark_color = (200, 200, 200, 60)  # 浅灰半透明
+        # 计算水印间距
+        try:
+            bbox1 = draw.textbbox((0, 0), wm_text1, font=font)
+            text_w = bbox1[2] - bbox1[0]
+        except Exception:
+            text_w = len(wm_text1) * font_size
+        step_x = max(text_w + 100, 300)
+        step_y = int(font_size * 5)
+        for y in range(0, img.height, step_y):
+            for x in range(0, img.width, step_x):
+                overlay_draw.text((x, y), wm_text1, fill=watermark_color, font=font)
+                overlay_draw.text((x, y + font_size + 4), wm_text2, fill=watermark_color, font=font_small)
+        img = img.convert("RGBA")
+        img = Image.alpha_composite(img, overlay)
+        img = img.convert("RGB")
+        # 输出 PNG
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        img_bytes = buf.getvalue()
+        from fastapi.responses import Response
+        return Response(
+            content=img_bytes,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "X-Content-Type-Options": "nosniff",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"渲染文档失败: {str(e)}")
 
 @app.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: int, token_data: dict = Depends(verify_token)):
