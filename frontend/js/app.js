@@ -21,6 +21,32 @@ const API_BASE = '/api';
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
+    // === 防下载保护 ===
+    // 禁用右键菜单
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    });
+    // 禁用 Ctrl+S(保存) / Ctrl+P(打印) / Ctrl+U(查看源码)
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && (e.key === 's' || e.key === 'S' || e.key === 'p' || e.key === 'P' || e.key === 'u' || e.key === 'U')) {
+            e.preventDefault();
+            return false;
+        }
+        // 禁用 F12 (DevTools)
+        if (e.key === 'F12') {
+            e.preventDefault();
+            return false;
+        }
+    });
+    // 禁用 Canvas 区域拖拽保存
+    document.addEventListener('dragstart', function(e) {
+        if (e.target.tagName === 'CANVAS' || e.target.id === 'pdf-canvas') {
+            e.preventDefault();
+            return false;
+        }
+    });
+
     try {
         const fingerprinter = new DeviceFingerprint();
         const fingerprintData = await fingerprinter.collect();
@@ -525,29 +551,53 @@ async function deleteDocument(docId) {
 }
 
 async function batchDelete() {
-    if (!confirm(`确定要删除选中的 ${selectedDocuments.size} 个文档吗？`)) return;
-    
+    var docCount = selectedDocuments.size;
+    var folderCount = selectedFolders.size;
+    var totalCount = docCount + folderCount;
+    if (totalCount === 0) return;
+
+    var msg = "确定要删除选中的 ";
+    if (docCount > 0) msg += docCount + " 个文档";
+    if (docCount > 0 && folderCount > 0) msg += "、";
+    if (folderCount > 0) msg += folderCount + " 个目录及其所有内容";
+    msg += " 吗？此操作不可恢复。";
+    if (!confirm(msg)) return;
+
     try {
-        const response = await fetch(`${API_BASE}/documents/batch-delete`, {
-            credentials: 'include',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ document_ids: Array.from(selectedDocuments) })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            selectedDocuments.clear();
-            selectedFolders.clear();
-            loadDocuments();
-        } else {
-            alert(data.detail || '删除失败');
+        // 删除文档
+        if (docCount > 0) {
+            var resp = await fetch(API_BASE + "/documents/batch-delete", {
+                credentials: "include",
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({document_ids: Array.from(selectedDocuments)})
+            });
+            if (!resp.ok) {
+                var err = await resp.json();
+                alert("文档删除失败: " + (err.detail || "未知错误"));
+            }
         }
+
+        // 删除目录（逐个调用删除接口）
+        if (folderCount > 0) {
+            for (var fid of selectedFolders) {
+                var resp2 = await fetch(API_BASE + "/folders/" + fid, {
+                    credentials: "include",
+                    method: "DELETE"
+                });
+                if (!resp2.ok) {
+                    var err2 = await resp2.json();
+                    alert("目录删除失败: " + (err2.detail || "未知错误"));
+                    break;
+                }
+            }
+        }
+
+        selectedDocuments.clear();
+        selectedFolders.clear();
+        loadDocuments();
     } catch (error) {
-        alert('网络错误，请重试');
+        alert("删除出错: " + error.message);
     }
 }
 
@@ -810,8 +860,8 @@ async function renderPage(pageNum) {
 function addWatermark(ctx, width, height) {
     const username = currentUser ? currentUser.username : 'Unknown';
     const timestamp = new Date().toLocaleString('zh-CN');
-    const line1 = `${username} | ${timestamp}`;
-    const line2 = '联拓海洋内部资料，严禁外泄';
+    const line1 = username;
+    const line2 = '圆满闯世界';
     
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
@@ -1239,9 +1289,17 @@ function formatFileSize(bytes) {
 }
 
 function formatDate(dateStr) {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleString('zh-CN');
+    if (!dateStr) return "-";
+    var date = new Date(dateStr + "Z");
+    var offset = 8 * 60;
+    var local = new Date(date.getTime() + offset * 60 * 1000);
+    var y = local.getUTCFullYear();
+    var m = String(local.getUTCMonth() + 1).padStart(2, "0");
+    var d = String(local.getUTCDate()).padStart(2, "0");
+    var h = String(local.getUTCHours()).padStart(2, "0");
+    var mi = String(local.getUTCMinutes()).padStart(2, "0");
+    var s = String(local.getUTCSeconds()).padStart(2, "0");
+    return y + "/" + m + "/" + d + " " + h + ":" + mi + ":" + s;
 }
 
 

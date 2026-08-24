@@ -1219,7 +1219,20 @@ async def view_document(doc_id: int, token_data: dict = Depends(verify_token)):
     conn.commit()
     conn.close()
     
-    return FileResponse(path=str(file_path), media_type="application/pdf", filename=doc["original_name"])
+    # 禁止下载：不设置 filename，添加 inline + 禁止缓存 header
+    with open(file_path, "rb") as f:
+        pdf_bytes = f.read()
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline",  # 不带 filename，阻止浏览器下载提示
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        }
+    )
 
 @app.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: int, token_data: dict = Depends(verify_token)):
@@ -1327,7 +1340,7 @@ async def batch_move_documents(batch: BatchMove, token_data: dict = Depends(veri
         parts.append(f"{result_doc_count} 个文档")
     if result_folder_count > 0:
         parts.append(f"{result_folder_count} 个目录")
-    return {"message": f"成功移动 {"、".join(parts)}"}
+    return {"message": f"成功移动 {chr(12289).join(parts)}"}
 
 @app.put("/api/documents/{doc_id}/move")
 async def move_document(doc_id: int, move: DocumentMove, token_data: dict = Depends(verify_token)):
