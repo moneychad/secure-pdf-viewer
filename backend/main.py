@@ -1051,10 +1051,10 @@ async def upload_document(
         raise HTTPException(status_code=404, detail="目标目录不存在")
     
     # 限制文件大小（50MB）
-    MAX_FILE_SIZE = 50 * 1024 * 1024
+    MAX_FILE_SIZE = 200 * 1024 * 1024
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="文件过大，最大支持 50MB")
+        raise HTTPException(status_code=413, detail="文件过大，最大支持 200MB")
     
     file_hash = hashlib.md5(f"{file.filename}{datetime.now()}".encode()).hexdigest()
     filename = f"{file_hash}.pdf"
@@ -1141,7 +1141,7 @@ async def upload_directory(
         folder_cache[cache_key] = result
         return result
 
-    MAX_FILE_SIZE = 50 * 1024 * 1024
+    MAX_FILE_SIZE = 200 * 1024 * 1024
     success_count = 0
     fail_count = 0
     errors = []
@@ -1231,7 +1231,7 @@ async def upload_directory_single(
 
     # 读取并保存文件
     content = await file.read()
-    MAX_FILE_SIZE = 50 * 1024 * 1024
+    MAX_FILE_SIZE = 200 * 1024 * 1024
     if len(content) > MAX_FILE_SIZE:
         conn.close()
         raise HTTPException(status_code=400, detail="文件过大")
