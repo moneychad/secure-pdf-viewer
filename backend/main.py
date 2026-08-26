@@ -1187,6 +1187,69 @@ async def upload_directory(
 
 
 
+
+
+@app.post("/api/documents/upload-directory-single")
+async def upload_directory_single(
+    file: UploadFile = File(...),
+    relative_path: str = Form(...),
+    folder_id: int = Query(default=1),
+    token_data: dict = Depends(verify_token)
+):
+    """单文件目录上传（前端逐个调用，避免大目录一次性上传超限）"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以上传文档")
+
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="只支持 PDF 文件")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # 验证目标目录存在
+    c.execute("SELECT id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+
+    # 解析目录结构，创建子目录
+    parts = relative_path.replace("\\", "/").split("/")
+    dir_parts = parts[:-1]
+    filename = parts[-1]
+
+    parent_id = folder_id
+    for d in dir_parts:
+        if not d:
+            continue
+        c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND is_active = 1", (d, parent_id))
+        row = c.fetchone()
+        if row:
+            parent_id = row[0]
+        else:
+            c.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)", (d, parent_id, token_data["username"]))
+            parent_id = c.lastrowid
+
+    # 读取并保存文件
+    content = await file.read()
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    if len(content) > MAX_FILE_SIZE:
+        conn.close()
+        raise HTTPException(status_code=400, detail="文件过大")
+
+    import hashlib
+    from datetime import datetime
+    file_hash = hashlib.md5(f"{filename}{datetime.now()}".encode()).hexdigest()
+    stored_name = f"{file_hash}.pdf"
+    file_path = UPLOAD_DIR / stored_name
+    with open(file_path, "wb") as fp:
+        fp.write(content)
+
+    c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
+              (stored_name, filename, len(content), parent_id, token_data["username"]))
+    conn.commit()
+    conn.close()
+    return {"success": True, "filename": filename, "message": f"上传成功: {filename}"}
+
 @app.get("/api/documents/{doc_id}/pages")
 async def get_document_pages(doc_id: int, token_data: dict = Depends(verify_token)):
     """获取文档总页数（服务端渲染模式）"""
