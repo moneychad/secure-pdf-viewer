@@ -1378,57 +1378,69 @@ async function validateAndUploadDir(files) {
         return;
     }
 
-    statusEl.innerHTML = '<span style="color:#3498db;">正在上传 ' + pdfFiles.length + ' 个 PDF 文件...</span>';
+    const folderId = currentFolderId;
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
 
-    const formData = new FormData();
-    const paths = [];
+    statusEl.innerHTML = '<div style="margin-bottom:8px;"><span style="color:#3498db;">正在上传 0/' + pdfFiles.length + ' 个 PDF 文件...</span></div>' +
+        '<div style="background:#eee;border-radius:4px;height:20px;overflow:hidden;"><div id="dir-upload-progress" style="background:#3498db;height:100%;width:0%;transition:width 0.3s;"></div></div>';
 
-    for (const item of pdfFiles) {
-        formData.append('files', item.file);
-        paths.push(item.relPath);
-    }
+    const progressEl = document.getElementById('dir-upload-progress');
 
-    formData.append('relative_paths', JSON.stringify(paths));
+    for (let i = 0; i < pdfFiles.length; i++) {
+        const item = pdfFiles[i];
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('relative_path', item.relPath);
 
-    try {
-        const response = await fetch(API_BASE + '/documents/upload-directory?folder_id=' + currentFolderId, {
-            credentials: 'include',
-            method: 'POST',
-            body: formData
-        });
-
-        const rawText = await response.text();
-        let result;
         try {
-            result = JSON.parse(rawText);
-        } catch(e) {
-            statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 服务器返回异常（HTTP ' + response.status + '），请联系管理员</span>';
-            document.getElementById("dir-file-input").value = "";
-            return;
+            const response = await fetch(API_BASE + '/documents/upload-directory-single?folder_id=' + folderId, {
+                credentials: 'include',
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                successCount++;
+            } else {
+                const rawText = await response.text();
+                let errMsg = item.relPath;
+                try {
+                    const result = JSON.parse(rawText);
+                    errMsg += ': ' + (result.detail || '未知错误');
+                } catch(e) {
+                    errMsg += ': HTTP ' + response.status;
+                }
+                errors.push(errMsg);
+                failCount++;
+            }
+        } catch (error) {
+            errors.push(item.relPath + ': ' + error.message);
+            failCount++;
         }
 
-        if (response.ok) {
-            let html = '<span style="color:#27ae60;">✅ ' + result.message + '</span>';
-            if (result.errors && result.errors.length > 0) {
-                html += '<div style="color:#e74c3c;margin-top:8px;text-align:left;">';
-                html += '<b>部分文件上传失败：</b><ul>';
-                for (const err of result.errors) {
-                    html += '<li style="font-size:12px;">' + escapeHtml(err) + '</li>';
-                }
-                html += '</ul></div>';
-            }
-            statusEl.innerHTML = html;
-            loadDocuments();
-        } else {
-            var errMsg = typeof result.detail === 'object' ? JSON.stringify(result.detail) : (result.detail || '未知错误');
-            statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 上传失败：' + escapeHtml(errMsg) + '</span>';
-        }
-    } catch (error) {
-        statusEl.innerHTML = '<span style="color:#e74c3c;">❌ 上传出错：' + escapeHtml(error.message) + '</span>';
+        const pct = Math.round(((i + 1) / pdfFiles.length) * 100);
+        if (progressEl) progressEl.style.width = pct + '%';
+        statusEl.querySelector('span').textContent = '正在上传 ' + (i + 1) + '/' + pdfFiles.length + ' 个 PDF 文件...';
     }
 
+    let html = '<span style="color:#27ae60;">✅ 上传完成：' + successCount + ' 个成功';
+    if (failCount > 0) html += '，' + failCount + ' 个失败';
+    html += '</span>';
+    if (errors.length > 0) {
+        html += '<div style="color:#e74c3c;margin-top:8px;text-align:left;">';
+        html += '<b>失败详情：</b><ul>';
+        for (const err of errors) {
+            html += '<li style="font-size:12px;">' + escapeHtml(err) + '</li>';
+        }
+        html += '</ul></div>';
+    }
+    statusEl.innerHTML = html;
+    loadDocuments();
     document.getElementById('dir-file-input').value = '';
 }
+
 
 // ==================== XSS 防护工具 ====================
 
