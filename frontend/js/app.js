@@ -133,7 +133,7 @@ async function handleLogin(e) {
             
             localStorage.setItem('user', JSON.stringify(currentUser));
             registerFingerprint().catch(e => console.error('指纹注册失败:', e));
-            showMainPage();
+            checkAgreementStatus();
         } else {
             showError('login-error', data.detail || '登录失败');
         }
@@ -181,11 +181,57 @@ function checkLoginStatus() {
     })
     .then(function(data) {
         currentUser = data;
-        showMainPage();
+        checkAgreementStatus();
     })
     .catch(function() {
         showLoginPage();
     });
+}
+
+// ===== 用户协议检查 =====
+// 每次登录都强制弹出协议窗口，不论之前是否同意过
+function checkAgreementStatus() {
+    showAgreementModal();
+}
+
+function showAgreementModal() {
+    const modal = document.getElementById('agreement-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+function hideAgreementModal() {
+    const modal = document.getElementById('agreement-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+async function acceptAgreement() {
+    try {
+        await fetch(API_BASE + '/users/me/agreement', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'agree' })
+        });
+    } catch (e) { console.error('协议记录失败:', e); }
+    hideAgreementModal();
+    showMainPage();
+}
+
+async function declineAgreement() {
+    try {
+        await fetch(API_BASE + '/users/me/agreement', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'disagree' })
+        });
+    } catch (e) { console.error('协议记录失败:', e); }
+    hideAgreementModal();
+    handleLogout();
 }
 
 function showLoginPage() {

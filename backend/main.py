@@ -553,6 +553,34 @@ async def get_current_user(token_data: dict = Depends(verify_token)):
         return dict(user)
     raise HTTPException(status_code=404, detail="User not found")
 
+@app.get("/api/users/me/agreement")
+async def get_agreement_status(token_data: dict = Depends(verify_token)):
+    """Always return accepted=false — popup must show every login"""
+    return {"accepted": False}
+
+@app.post("/api/users/me/agreement")
+async def log_agreement_action(request: Request, token_data: dict = Depends(verify_token)):
+    """Log every agreement button click (agree or disagree) for audit"""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        body = await request.json()
+        action = body.get("action", "unknown")
+    except Exception:
+        action = "unknown"
+    agreed = 1 if action == "agree" else 0
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent", "")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO agreement_logs (username, action, agreed, created_at, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)",
+        (token_data["username"], action, agreed, now, ip_address, user_agent)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "action": action, "logged_at": now}
+
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
     # 检查登录频率限制

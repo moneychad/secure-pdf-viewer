@@ -473,7 +473,7 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=6.1"></script>
+    <script src="/js/app.js?v=6.2"></script>
     <script src="/js/groups.js?v=6.0"></script>
     <script src="/js/extend.js?v=6.0"></script>
     <script src="/js/permission.js?v=6.0"></script>
@@ -517,7 +517,31 @@
             </div>
         </div>
     </div>
+
+    <!-- 用户协议弹框 -->
+    <div id="agreement-modal" class="modal hidden agreement-modal-overlay">
+        <div class="modal-content agreement-modal-content">
+            <h3>📋 用户协议及隐私政策</h3>
+            <div class="agreement-summary">
+                <p>欢迎使用 <strong>联拓海洋 Data Room</strong></p>
+                <p>请您知悉<strong>《用户协议及隐私政策》</strong>。</p>
+                <p>主要内容包括：</p>
+                <ul>
+                    <li>您的账号使用规范及安全责任</li>
+                    <li>文档保密义务及知识产权保护</li>
+                </ul>
+                <p>点击「同意」表示您已知悉全部条款，并同意接受其约束。</p>
+                <p class="agreement-link-row">
+                    <a href="/agreement.html" target="_blank" class="agreement-link">📄 查看完整协议文本：《用户协议及隐私政策》</a>
+                </p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="declineAgreement()">不同意</button>
+                <button class="btn-primary agreement-accept-btn" onclick="acceptAgreement()">同意并继续</button>
+            </div>
+        </div>
+    </div>
     <!-- 全局页脚 -->
-    <div class="site-copyright">联拓海洋版权所有&copy;2024-2026 未经书面允许，不得泄露</div>
+    <div class="site-copyright">联拓海洋版权所有&copy;2024-2026 未经书面允许，不得以任何形式向任何第三方披露。</div>
 </body>
 </html>
