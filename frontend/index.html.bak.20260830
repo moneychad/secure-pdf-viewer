@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安全文档共享平台</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录页面 -->
+        <div id="login-page" class="page">
+            <div class="login-container">
+                <div class="login-logo-area">
+                    <img src="/assets/logo_login.png" alt="AUV-X Technologies" class="login-page-logo">
+                </div>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="username" required placeholder="请输入用户名">
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="password" required placeholder="请输入密码">
+                    </div>
+                    <button type="submit" class="btn-primary">登录</button>
+                    <div id="login-error" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 主页面 -->
+        <div id="main-page" class="page hidden">
+            <header>
+                <div class="header-left">
+                    <div class="header-brand">
+                        <img src="/assets/logo_header.png" alt="AUV-X" class="header-logo-img">
+                    </div>
+                </div>
+                <div class="header-right">
+                    <span id="current-user"></span>
+                    <button id="logout-btn" class="btn-secondary">退出</button>
+                </div>
+            </header>
+
+            <div class="container">
+                <!-- 侧边栏 -->
+                <aside class="sidebar">
+                    <nav>
+                        <a href="#" class="nav-item active" data-page="documents">📄 文档列表</a>
+                        <a href="#" class="nav-item" data-page="viewer" style="display:none;">📖 文档查看</a>
+                        <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
+                        <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
+                        <a href="#" class="nav-item admin-only" data-page="audit-logs">📋 审计日志</a>
+                        <a href="#" class="nav-item admin-only" data-page="users">👥 用户管理</a>
+                        <a href="#" class="nav-item admin-only" data-page="groups">👪 用户组管理</a>                        <a href="#" class="nav-item admin-only" data-page="permissions">🔐 权限配置</a>
+                        <a href="#" class="nav-item" data-page="password">🔑 修改密码</a>
+                    </nav>
+                </aside>
+
+                <!-- 内容区域 -->
+                <main class="content">
+                    <!-- 文档列表 -->
+                    <div id="page-documents" class="content-page active">
+                        <div class="page-header">
+                            <h2>文档管理</h2>
+                            <div class="page-actions">
+                                <button class="btn-primary admin-only" onclick="showCreateFolderModal()">&#128193; 新建目录</button>
+                            <button class="btn-primary admin-only" onclick="showUploadModal()">&#128228; 上传文档</button>
+                            <button class="btn-primary admin-only" onclick="showDirUploadModal()">&#128194; 上传目录</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 面包屑导航 -->
+                        <div class="breadcrumb" id="breadcrumb"></div>
+                        
+                        <!-- 搜索和排序 -->
+                        <div class="toolbar">
+                            <div class="search-box">
+                                <input type="text" id="search-input" placeholder="搜索文件名..." onkeyup="handleSearch(event)">
+                                <button class="btn-search" onclick="loadDocuments()">🔍</button>
+                            </div>
+                            <div class="sort-box">
+                                <select id="sort-by" onchange="loadDocuments()">
+                                    <option value="uploaded_at">上传时间</option>
+                                    <option value="original_name">文件名</option>
+                                    <option value="file_size">文件大小</option>
+                                    <option value="updated_at">修改时间</option>
+                                </select>
+                                <select id="sort-order" onchange="loadDocuments()">
+                                    <option value="desc">降序</option>
+                                    <option value="asc">升序</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- 批量操作栏 -->
+                        <div class="batch-bar admin-only" id="batch-bar" style="display:none;">
+                            <label><input type="checkbox" id="select-all" onchange="toggleSelectAll()"> 全选</label>
+                            <span id="selected-count">已选 0 项</span>
+                            <button class="btn-danger" onclick="batchDelete()">🗑️ 批量删除</button>
+                            <button class="btn-secondary" onclick="showBatchMoveModal()">📁 批量移动</button>
+                            <button class="btn-primary" onclick="showBatchPermissionModal()">🔐 批量权限</button>
+                        </div>
+                        
+                        <!-- 目录和文档列表 -->
+                        <div class="file-list">
+                            <table id="file-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-checkbox admin-only"><input type="checkbox" id="header-checkbox" onchange="toggleSelectAll()"></th>
+                                        <th class="col-icon">类型</th>
+                                        <th class="col-name">名称</th>
+                                        <th class="col-size">大小</th>
+                                        <th class="col-creator">创建者</th>
+                                        <th class="col-time">创建时间</th>
+                                        <th class="col-time">修改时间</th>
+                                        <th class="col-actions admin-only">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="file-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 文档查看器 -->
+                    <div id="page-viewer" class="content-page">
+                        <div class="viewer-header">
+                            <button id="back-to-list" class="btn-secondary">← 返回列表</button>
+                            <span id="viewer-doc-name"></span>
+                            <span id="viewer-page-info">第 1 页</span>
+                        </div>
+                        <div class="viewer-container">
+                            <div class="viewer-nav">
+                                <button id="prev-page" class="btn-nav">◀ 上一页</button>
+                                <button id="next-page" class="btn-nav">下一页 ▶</button>
+                            </div>
+                            <div class="pdf-viewer-wrapper">
+                                <img id="pdf-viewer-img" style="max-width:100%;height:auto;display:block;margin:0 auto;" alt="文档内容">
+                                <div id="watermark-overlay"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 上传文档 -->
+                    <div id="page-upload" class="content-page">
+                        <h2>上传文档</h2>
+                        <div class="upload-target">
+                            <label>上传到目录：</label>
+                            <select id="upload-folder-select"></select>
+                        </div>
+                        <form id="upload-form" class="upload-form">
+                            <div class="upload-area" id="drop-zone">
+                                <p>📄 拖拽 PDF 文件到此处</p>
+                                <p>或</p>
+                                <input type="file" id="file-input" accept=".pdf" multiple hidden>
+                                <button type="button" class="btn-primary" onclick="document.getElementById('file-input').click()">
+                                    选择文件
+                                </button>
+                            </div>
+                            <div id="upload-status"></div>
+                        </form>
+                    </div>
+
+                    <!-- 访问日志 -->
+                    <div id="page-logs" class="content-page">
+                        <h2>访问日志</h2>
+                        <div class="table-container">
+                            <table id="logs-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>用户</th>
+                                        <th>文档</th>
+                                        <th>操作</th>
+                                        <th>页码</th>
+                                        <th>停留时间</th>
+                                        <th>IP地址</th>
+                                        <th>设备指纹</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logs-body"></tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="logs-pagination"></div>
+                    </div>
+
+                    <!-- 设备指纹 -->
+                    <div id="page-fingerprints" class="content-page">
+                        <h2>设备指纹</h2>
+                        <div class="table-container">
+                            <table id="fingerprints-table">
+                                <thead>
+                                    <tr>
+                                        <th>指纹ID</th>
+                                        <th>用户</th>
+                                        <th>首次访问</th>
+                                        <th>最后访问</th>
+                                        <th>IP地址</th>
+                                        <th>浏览器</th>
+                                        <th>操作系统</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fingerprints-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 审计日志 -->
+                    <div id="page-audit-logs" class="content-page">
+                        <h2>审计日志</h2>
+                        <div class="table-container">
+                            <table id="audit-logs-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>用户</th>
+                                        <th>操作</th>
+                                        <th>目标类型</th>
+                                        <th>目标</th>
+                                        <th>详情</th>
+                                        <th>IP地址</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-logs-body"></tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="audit-logs-pagination"></div>
+                    </div>
+
+                    <!-- 用户管理 -->
+                    <div id="page-users" class="content-page">
+                        <h2>用户管理</h2>
+                        <div class="user-form">
+                            <h3>创建新用户</h3>
+                            <form id="create-user-form">
+                                <div class="form-row">
+                                    <input type="text" id="new-username" placeholder="用户名" required>
+                                    <input type="password" id="new-password" placeholder="密码" required>
+                                    <select id="new-role">
+                                        <option value="viewer">普通用户</option>
+                                        <option value="admin">管理员</option>
+                                    </select>
+                                    <button type="submit" class="btn-primary">创建</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="table-container">
+                            <table id="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>用户名</th>
+                                        <th>角色</th>
+                                        <th>用户组</th>
+                                        <th>状态</th>
+                                        <th>创建时间</th>
+                                        <th>修改时间</th>
+                                        <th>上次登录</th>
+                                        <th>操作</th>
+                                    </tr>
+                                    <tr class="search-row">
+                                        <td><input type="text" class="col-search" data-col="0" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="1" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="2" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="3" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="4" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="5" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="6" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td><input type="text" class="col-search" data-col="7" placeholder="搜索..." oninput="filterUsers()"></td>
+                                        <td></td>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    
+                    <!-- 用户组管理 -->
+                    <div id="page-groups" class="content-page">
+                        <h2>用户组管理</h2>
+                        <div class="user-form">
+                            <h3>创建用户组</h3>
+                            <form id="create-group-form">
+                                <div class="form-row">
+                                    <input type="text" id="new-group-name" placeholder="用户组名称">
+                                    <input type="text" id="new-group-desc" placeholder="描述（可选）">
+                                    <button type="submit" class="btn-primary">创建</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="table-container">
+                            <table id="groups-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>组名</th>
+                                        <th>描述</th>
+                                        <th>成员</th>
+                                        <th>创建时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="groups-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+
+                    <!-- 权限配置 -->
+                    <div id="page-permissions" class="content-page">
+                        <h2>权限配置</h2>
+                        <div class="permission-toolbar">
+                            <div class="permission-selector">
+                                <label>配置对象：</label>
+                                <select id="perm-target-type" onchange="loadPermissionTargets()">
+                                    <option value="user">用户</option>
+                                    <option value="group">用户组</option>
+                                </select>
+                                <select id="perm-target-id"></select>
+                            </div>
+                            <button class="btn-primary" onclick="loadPermissions()">加载权限</button>
+                        </div>
+                        
+                        <div class="permission-section">
+                            <h3>目录权限</h3>
+                            <p class="hint">勾选表示授予读取权限，目录权限会自动继承到子目录和文件</p>
+                            <div class="permission-tree" id="folder-permissions"></div>
+                        </div>
+                        
+                        <div class="permission-section">
+                            <h3>文件权限</h3>
+                            <div class="permission-list" id="document-permissions"></div>
+                        </div>
+                    </div>
+
+                    <!-- 修改密码 -->
+                    <div id="page-password" class="content-page">
+                        <h2>修改密码</h2>
+                        <div class="user-form">
+                            <form id="change-password-form">
+                                <div class="form-group">
+                                    <label>当前密码</label>
+                                    <input type="password" id="old-password" placeholder="请输入当前密码" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>新密码</label>
+                                    <input type="password" id="new-password-change" placeholder="请输入新密码（至少6位）" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>确认新密码</label>
+                                    <input type="password" id="confirm-password" placeholder="请再次输入新密码" required>
+                                </div>
+                                <button type="submit" class="btn-primary">修改密码</button>
+                            </form>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建目录弹窗 -->
+    <div id="create-folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>新建目录</h3>
+            <div class="form-group">
+                <label>目录名称</label>
+                <input type="text" id="new-folder-name" placeholder="请输入目录名称">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('create-folder-modal')">取消</button>
+                <button class="btn-primary" onclick="createFolder()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重命名目录弹窗 -->
+    <div id="rename-folder-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>重命名目录</h3>
+            <div class="form-group">
+                <label>新名称</label>
+                <input type="text" id="rename-folder-name" placeholder="请输入新名称">
+            </div>
+            <input type="hidden" id="rename-folder-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('rename-folder-modal')">取消</button>
+                <button class="btn-primary" onclick="renameFolder()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 移动文档弹窗 -->
+    <div id="move-doc-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>移动到目录</h3>
+            <div class="form-group">
+                <label>选择目标目录</label>
+                <select id="move-folder-select"></select>
+            </div>
+            <input type="hidden" id="move-doc-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('move-doc-modal')">取消</button>
+                <button class="btn-primary" onclick="moveDocument()">移动</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量移动弹窗 -->
+    <!-- 单个权限配置弹窗 -->
+    <div id="permission-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3 id="permission-modal-title">配置权限</h3>
+            <div class="form-group">
+                <label>搜索用户或用户组</label>
+                <input type="text" id="perm-search-input" placeholder="输入用户名或用户组名搜索" oninput="searchPermTargets()">
+                <div id="perm-search-results" class="search-results"></div>
+            </div>
+            <div id="perm-selected-target" class="form-group" style="display:none;">
+                <label>已选择</label>
+                <div class="selected-target">
+                    <span id="perm-target-display"></span>
+                    <button class="btn-sm btn-secondary" onclick="clearPermTarget()">清除</button>
+                </div>
+            </div>
+            <input type="hidden" id="perm-resource-type">
+            <input type="hidden" id="perm-resource-id">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('permission-modal')">取消</button>
+                <button class="btn-primary" onclick="savePermission()">保存权限</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量权限配置弹窗 -->
+    <div id="batch-permission-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>批量配置权限</h3>
+            <p id="batch-perm-count">已选 0 个项目</p>
+            <div class="form-group">
+                <label>搜索用户或用户组</label>
+                <input type="text" id="batch-perm-search" placeholder="输入用户名或用户组名搜索" oninput="searchBatchPermTargets()">
+                <div id="batch-perm-results" class="search-results"></div>
+            </div>
+            <div id="batch-perm-selected" class="form-group" style="display:none;">
+                <label>已选择</label>
+                <div class="selected-target">
+                    <span id="batch-perm-display"></span>
+                    <button class="btn-sm btn-secondary" onclick="clearBatchPermTarget()">清除</button>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('batch-permission-modal')">取消</button>
+                <button class="btn-primary" onclick="saveBatchPermissions()">保存权限</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="batch-move-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>批量移动到目录</h3>
+            <div class="form-group">
+                <label>选择目标目录</label>
+                <select id="batch-move-folder-select"></select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('batch-move-modal')">取消</button>
+                <button class="btn-primary" onclick="batchMove()">移动</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/fingerprint.js"></script>
+    <script src="/js/app.js?v=6.1"></script>
+    <script src="/js/groups.js?v=6.0"></script>
+    <script src="/js/extend.js?v=6.0"></script>
+    <script src="/js/permission.js?v=6.0"></script>
+
+    <!-- 上传文档弹窗 -->
+    <!-- 上传目录弹窗 -->
+    <div id="dir-upload-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>上传目录到当前位置</h3>
+            <p class="upload-target-info" id="dir-upload-target-info">目标目录：根目录</p>
+            <div class="upload-area" id="dir-drop-zone">
+                <p>&#128194; 选择要上传的文件夹</p>
+                <p style="font-size:12px;color:#999;">仅支持包含 PDF 文件的目录，如有非 PDF 文件将自动拦截</p>
+                <input type="file" id="dir-file-input" webkitdirectory directory hidden>
+                <button type="button" class="btn-primary" onclick="document.getElementById('dir-file-input').click()">
+                    选择文件夹
+                </button>
+            </div>
+            <div id="dir-upload-status"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('dir-upload-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="upload-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>上传文档到当前目录</h3>
+            <p class="upload-target-info" id="upload-target-info">目标目录：根目录</p>
+            <div class="upload-area" id="modal-drop-zone">
+                <p>📄 拖拽 PDF 文件到此处</p>
+                <p>或</p>
+                <input type="file" id="modal-file-input" accept=".pdf" multiple hidden>
+                <button type="button" class="btn-primary" onclick="document.getElementById('modal-file-input').click()">
+                    选择文件
+                </button>
+            </div>
+            <div id="modal-upload-status"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('upload-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+    <!-- 全局页脚 -->
+    <div class="site-copyright">联拓海洋版权所有&copy;2024-2026 未经书面允许，不得泄露</div>
+</body>
+</html>
