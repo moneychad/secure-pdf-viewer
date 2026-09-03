@@ -306,6 +306,7 @@ async function loadPermissions() {
         console.error('加载权限失败:', error);
     }
 }
+// v2: loadPermissions unchanged - path info comes from API now
 
 function renderFolderPermissions(folders, permissions, targetType, targetId) {
     var container = document.getElementById('folder-permissions');
@@ -315,20 +316,43 @@ function renderFolderPermissions(folders, permissions, targetType, targetId) {
     }
     
     var permMap = {};
-    permissions.forEach(function(p) { permMap[p.folder_id] = p.can_read; });
+    permissions.forEach(function(p) { permMap[p.folder_id] = p; });
     
-    container.innerHTML = folders.map(function(folder) {
-        var hasPerm = permMap[folder.id] === 1;
+    var allPermFolders = permissions.slice();
+    var html = '';
+    
+    // 已授权目录列表
+    if (allPermFolders.length > 0) {
+        html += '<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #eee;">';
+        html += '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">已授权目录</div>';
+        allPermFolders.forEach(function(p) {
+            var displayPath = p.folder_path || p.folder_name;
+            var fid = p.folder_id;
+            html += '<div class="permission-item" style="display:flex;align-items:center;">';
+            html += '<span class="folder-icon" style="margin-right:4px;">📁</span>';
+            html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(displayPath) + '">' + escapeHtml(displayPath) + '</span>';
+            html += '<span class="perm-status perm-granted" style="margin-right:8px;">已授权</span>';
+            html += '<button class="btn-action btn-delete" onclick="removeFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + fid + ')" title="移除权限">🗑️</button>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    // 根目录列表（全部未勾选，用于添加新权限）
+    html += '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">所有根级目录（勾选添加权限）</div>';
+    html += folders.map(function(folder) {
         return '<div class="permission-item">' +
             '<label>' +
-                '<input type="checkbox" ' + (hasPerm ? 'checked' : '') + 
+                '<input type="checkbox"' +
                 ' onchange="setFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + folder.id + ', this.checked)">' +
                 '<span class="folder-icon">📁</span>' +
                 '<span>' + escapeHtml(folder.name) + ' (' + folder.doc_count + ' 个文件)</span>' +
             '</label>' +
-            '<span class="perm-status ' + (hasPerm ? 'perm-granted' : 'perm-denied') + '">' + (hasPerm ? '已授权' : '未授权') + '</span>' +
+            '<span class="perm-status perm-denied">未授权</span>' +
         '</div>';
     }).join('');
+    
+    container.innerHTML = html;
 }
 
 function renderDocumentPermissions(permissions, targetType, targetId) {
@@ -339,10 +363,11 @@ function renderDocumentPermissions(permissions, targetType, targetId) {
     }
     
     container.innerHTML = permissions.map(function(perm) {
+        var displayPath = perm.document_path || perm.document_name;
         return '<div class="permission-item">' +
             '<label>' +
                 '<input type="checkbox" checked onchange="setDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ', this.checked)">' +
-                '<span>📄 ' + escapeHtml(perm.document_name) + '</span>' +
+                '<span>📄 ' + escapeHtml(displayPath) + '</span>' +
             '</label>' +
             '<button class="btn-action btn-delete" onclick="removeDocumentPermission(\'' + targetType + '\', ' + targetId + ', ' + perm.document_id + ')" title="移除权限">🗑️</button>' +
         '</div>';
@@ -422,3 +447,22 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+
+async function removeFolderPermission(targetType, targetId, folderId) {
+    if (!confirm('确定要移除该目录的权限吗？')) return;
+    try {
+        var response = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/folder/' + folderId, {
+            credentials: 'include',
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            loadPermissions();
+        } else {
+            var data = await response.json();
+            alert(data.detail || '移除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
