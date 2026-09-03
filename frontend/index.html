@@ -45,9 +45,16 @@
 
             <div class="container">
                 <!-- 侧边栏 -->
-                <aside class="sidebar">
+                <aside class="sidebar" id="sidebar">
+                    <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
                     <nav>
-                        <a href="#" class="nav-item active" data-page="documents">📄 文档列表</a>
+                        <div style="display:flex;align-items:center;">
+                            <a href="#" class="nav-item active" data-page="documents" style="flex:1;">📄 文档列表</a>
+                            <span id="tree-toggle-btn" style="cursor:pointer;padding:15px 12px;color:#95a5a6;font-size:12px;user-select:none;" title="展开/折叠目录树">▶</span>
+                        </div>
+                        <div id="folder-tree-container" class="folder-tree-container">
+                            <div id="folder-tree" class="folder-tree"></div>
+                        </div>
                         <a href="#" class="nav-item" data-page="viewer" style="display:none;">📖 文档查看</a>
                         <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
                         <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
@@ -83,13 +90,13 @@
                             <div class="sort-box">
                                 <select id="sort-by" onchange="loadDocuments()">
                                     <option value="uploaded_at">上传时间</option>
-                                    <option value="original_name">文件名</option>
+                                    <option value="original_name" selected>文件名</option>
                                     <option value="file_size">文件大小</option>
                                     <option value="updated_at">修改时间</option>
                                 </select>
                                 <select id="sort-order" onchange="loadDocuments()">
                                     <option value="desc">降序</option>
-                                    <option value="asc">升序</option>
+                                    <option value="asc" selected>升序</option>
                                 </select>
                             </div>
                         </div>
@@ -427,6 +434,7 @@
             </div>
             <input type="hidden" id="perm-resource-type">
             <input type="hidden" id="perm-resource-id">
+            <div id="existing-permissions"></div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('permission-modal')">取消</button>
                 <button class="btn-primary" onclick="savePermission()">保存权限</button>
@@ -474,9 +482,9 @@
 
     <script src="/js/fingerprint.js"></script>
     <script src="/js/app.js?v=6.2"></script>
-    <script src="/js/groups.js?v=6.0"></script>
-    <script src="/js/extend.js?v=6.0"></script>
-    <script src="/js/permission.js?v=6.0"></script>
+    <script src="/js/groups.js?v=6.12"></script>
+    <script src="/js/extend.js?v=6.5"></script>
+    <script src="/js/permission.js?v=6.5"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->
