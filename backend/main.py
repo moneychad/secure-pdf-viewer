@@ -378,6 +378,26 @@ def get_file_path(conn, document_id):
     
     path_parts.reverse()
     return "/" + "/".join(path_parts) + "/" + original_name
+
+
+def get_folder_path(folder_id: int, db) -> str:
+    """获取目录的完整路径"""
+    c = db.cursor()
+    parts = []
+    current = folder_id
+    visited = set()
+    while current and current not in visited:
+        visited.add(current)
+        c.execute("SELECT name, parent_id FROM folders WHERE id = ?", (current,))
+        row = c.fetchone()
+        if row:
+            parts.append(row["name"])
+            current = row["parent_id"]
+        else:
+            break
+    parts.reverse()
+    return "/" + "/".join(parts) if parts else ""
+
 def check_folder_permission(user_id: int, folder_id: int, db, depth: int = 0) -> bool:
     """检查用户是否有目录的读取权限（包括继承）"""
     # 防止无限递归
@@ -492,6 +512,35 @@ def _add_child_folder_ids(folder_id: int, ids_set: set, db):
     for row in c.fetchall():
         ids_set.add(row["id"])
         _add_child_folder_ids(row["id"], ids_set, db)
+
+import re as _re
+
+def _natural_sort_key(s):
+    """自然排序key：将字符串中的数字部分转为整数排序"""
+    if s is None:
+        s = ''
+    return [int(c) if c.isdigit() else c.lower() for c in _re.split(r'(\d+)', str(s))]
+
+def get_recursive_folder_size(folder_id: int, db) -> int:
+    """递归计算目录下所有文件的总大小"""
+    c = db.cursor()
+    c.execute("SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = ? AND is_active = 1", (folder_id,))
+    total = c.fetchone()[0]
+    c.execute("SELECT id FROM folders WHERE parent_id = ? AND is_active = 1", (folder_id,))
+    for row in c.fetchall():
+        total += get_recursive_folder_size(row[0], db)
+    return total
+
+def get_recursive_doc_count(folder_id: int, db) -> int:
+    """递归计算目录下所有文件数量"""
+    c = db.cursor()
+    c.execute("SELECT COUNT(*) FROM documents WHERE folder_id = ? AND is_active = 1", (folder_id,))
+    total = c.fetchone()[0]
+    c.execute("SELECT id FROM folders WHERE parent_id = ? AND is_active = 1", (folder_id,))
+    for row in c.fetchall():
+        total += get_recursive_doc_count(row[0], db)
+    return total
+
 
 # ==================== 登录频率限制 ====================
 from collections import defaultdict
@@ -851,6 +900,8 @@ async def list_group_members(group_id: int, token_data: dict = Depends(verify_to
 @app.get("/api/folders")
 async def list_folders(
     parent_id: Optional[int] = None,
+    sort_by: Optional[str] = "name",
+    sort_order: Optional[str] = "asc",
     token_data: dict = Depends(verify_token)
 ):
     conn = get_db()
@@ -864,13 +915,10 @@ async def list_folders(
     # 管理员可以看到所有目录
     if token_data.get("role") == "admin":
         c.execute("""SELECT f.*, u.username as creator_name,
-                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
-                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count,
-                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
+                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count
                     FROM folders f 
                     LEFT JOIN users u ON f.created_by = u.username
-                    WHERE f.parent_id = ? AND f.is_active = 1 
-                    ORDER BY f.name""", (parent_id,))
+                    WHERE f.parent_id = ? AND f.is_active = 1 """, (parent_id,))
     else:
         # 普通用户只能看到有权限的目录
         accessible_ids = get_user_accessible_folder_ids(user_id, conn)
@@ -880,18 +928,134 @@ async def list_folders(
         
         placeholders = ','.join(['?' for _ in accessible_ids])
         c.execute(f"""SELECT f.*, u.username as creator_name,
-                    (SELECT COUNT(*) FROM documents WHERE folder_id = f.id AND is_active = 1) as doc_count,
-                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count,
-                    (SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE folder_id = f.id AND is_active = 1) as total_size
+                    (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND is_active = 1) as subfolder_count
                     FROM folders f 
                     LEFT JOIN users u ON f.created_by = u.username
-                    WHERE f.parent_id = ? AND f.is_active = 1 AND f.id IN ({placeholders})
-                    ORDER BY f.name""", [parent_id] + accessible_ids)
+                    WHERE f.parent_id = ? AND f.is_active = 1 AND f.id IN ({placeholders})""", [parent_id] + accessible_ids)
     
-    folders = [dict(row) for row in c.fetchall()]
+    raw_folders = [dict(row) for row in c.fetchall()]
+    
+    # 计算递归大小和文件数
+    for f in raw_folders:
+        f['total_size'] = get_recursive_folder_size(f['id'], conn)
+        f['doc_count'] = get_recursive_doc_count(f['id'], conn)
+    
+    # 排序
+    valid_folder_sorts = {"original_name": "name", "file_size": "total_size", "uploaded_at": "created_at", "updated_at": "updated_at", "name": "name"}
+    sort_field = valid_folder_sorts.get(sort_by, "name")
+    reverse = (sort_order.lower() == "desc")
+    folders = sorted(raw_folders, key=lambda x: _natural_sort_key(x.get(sort_field, "")), reverse=reverse)
+    
     conn.close()
     
     return {"folders": folders}
+
+
+
+@app.get("/api/folders/tree")
+async def get_folder_tree(token_data: dict = Depends(verify_token)):
+    """获取当前用户可访问的完整目录树（含文档）"""
+    conn = get_db()
+    c = conn.cursor()
+    
+    user_id = token_data.get("user_id")
+    is_admin = token_data.get("role") == "admin"
+    
+    if is_admin:
+        # 管理员看所有活跃目录
+        c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+        all_folders = [dict(row) for row in c.fetchall()]
+        c.execute("SELECT id, original_name, folder_id FROM documents WHERE is_active = 1 ORDER BY original_name")
+        all_docs = [dict(row) for row in c.fetchall()]
+    else:
+        # 普通用户：获取有权限的目录ID集合
+        accessible_ids = set(get_user_accessible_folder_ids(user_id, conn))
+        
+        # 也获取直接有权限的文档
+        c.execute("SELECT document_id FROM user_document_permissions WHERE user_id = ? AND can_read = 1", (user_id,))
+        direct_doc_ids = set(r["document_id"] for r in c.fetchall())
+        
+        if user_id:
+            c.execute("SELECT group_id FROM users WHERE id = ?", (user_id,))
+            u = c.fetchone()
+            if u and u["group_id"]:
+                c.execute("SELECT document_id FROM group_document_permissions WHERE group_id = ? AND can_read = 1", (u["group_id"],))
+                direct_doc_ids.update(r["document_id"] for r in c.fetchall())
+        
+        # 只返回有权限的目录
+        c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+        all_folders = [dict(row) for row in c.fetchall() if row["id"] in accessible_ids]
+        
+        # 记录原始有权限的目录ID（用于文档过滤，不包含后续补充的祖先目录）
+        permitted_folder_ids = set(accessible_ids)
+        
+        # 文档：在有权限目录下的 + 直接有权限的
+        c.execute("SELECT id, original_name, folder_id FROM documents WHERE is_active = 1 ORDER BY original_name")
+        all_docs = [dict(row) for row in c.fetchall() 
+                     if row["folder_id"] in permitted_folder_ids or row["id"] in direct_doc_ids]
+    
+    # 补充祖先目录，确保树结构完整（仅用于显示，不授予访问权限）
+    if not is_admin:
+        all_folder_ids = {f["id"] for f in all_folders}
+        need_ancestors = set()
+        
+        # 1. 为每个有权限的目录补充祖先链（连接到已有的树或根目录）
+        for fid in list(all_folder_ids):
+            # 从 fid 的 parent 开始向上追踪
+            c.execute("SELECT parent_id FROM folders WHERE id = ? AND is_active = 1", (fid,))
+            row = c.fetchone()
+            cur = row["parent_id"] if row else None
+            visited = set()
+            while cur and cur not in all_folder_ids and cur not in visited:
+                visited.add(cur)
+                need_ancestors.add(cur)
+                c.execute("SELECT parent_id FROM folders WHERE id = ? AND is_active = 1", (cur,))
+                row = c.fetchone()
+                cur = row["parent_id"] if row else None
+        
+        # 2. 为直接权限的文档补充祖先链
+        for doc in all_docs:
+            if doc["folder_id"] not in all_folder_ids and doc["id"] in direct_doc_ids:
+                fid = doc["folder_id"]
+                while fid and fid not in all_folder_ids:
+                    need_ancestors.add(fid)
+                    c.execute("SELECT parent_id FROM folders WHERE id = ? AND is_active = 1", (fid,))
+                    row = c.fetchone()
+                    fid = row["parent_id"] if row else None
+                if fid:
+                    need_ancestors.add(fid)
+        
+        if need_ancestors:
+            c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+            extra_folders = [dict(row) for row in c.fetchall() if row["id"] in need_ancestors and row["id"] not in all_folder_ids]
+            all_folders.extend(extra_folders)
+    
+    # 构建树
+    folder_map = {f["id"]: {**f, "children": [], "docs": []} for f in all_folders}
+    
+    for doc in all_docs:
+        fid = doc["folder_id"]
+        if fid in folder_map:
+            folder_map[fid]["docs"].append({"id": doc["id"], "name": doc["original_name"]})
+    
+    tree = []
+    for f in folder_map.values():
+        pid = f["parent_id"]
+        if pid and pid in folder_map:
+            folder_map[pid]["children"].append(f)
+        else:
+            tree.append(f)
+    
+    # 递归排序
+    def sort_tree(nodes):
+        nodes.sort(key=lambda x: _natural_sort_key(x["name"]))
+        for n in nodes:
+            sort_tree(n["children"])
+            n["docs"].sort(key=lambda x: _natural_sort_key(x["name"]))
+    sort_tree(tree)
+    
+    conn.close()
+    return {"tree": tree}
 
 @app.post("/api/folders")
 async def create_folder(folder: FolderCreate, token_data: dict = Depends(verify_token)):
@@ -1027,12 +1191,37 @@ async def list_documents(
                    WHERE d.is_active = 1"""
         params = []
         
-        # 如果没有目录权限，检查直接文档权限
-        if not accessible_folder_ids:
-            query += f""" AND (d.id IN (SELECT document_id FROM user_document_permissions WHERE user_id = ? AND can_read = 1)
-                         OR d.id IN (SELECT document_id FROM group_document_permissions 
-                                     WHERE group_id = (SELECT group_id FROM users WHERE id = ?) AND can_read = 1))"""
-            params.extend([user_id, user_id])
+        # 获取用户直接有权限的文档ID
+        direct_doc_ids = set()
+        c.execute("SELECT document_id FROM user_document_permissions WHERE user_id = ? AND can_read = 1", (user_id,))
+        direct_doc_ids.update(r["document_id"] for r in c.fetchall())
+        c.execute("SELECT group_id FROM users WHERE id = ?", (user_id,))
+        u = c.fetchone()
+        if u and u["group_id"]:
+            c.execute("SELECT document_id FROM group_document_permissions WHERE group_id = ? AND can_read = 1", (u["group_id"],))
+            direct_doc_ids.update(r["document_id"] for r in c.fetchall())
+        
+        if accessible_folder_ids:
+            # 有目录权限：只显示有权限的目录下的文件 + 直接有权限的文件
+            folder_placeholders = ",".join("?" * len(accessible_folder_ids))
+            if direct_doc_ids:
+                doc_placeholders = ",".join("?" * len(direct_doc_ids))
+                query += f" AND (d.folder_id IN ({folder_placeholders}) OR d.id IN ({doc_placeholders}))"
+                params.extend(accessible_folder_ids)
+                params.extend(list(direct_doc_ids))
+            else:
+                query += f" AND d.folder_id IN ({folder_placeholders})"
+                params.extend(accessible_folder_ids)
+        else:
+            # 没有目录权限：只显示直接有权限的文档
+            if direct_doc_ids:
+                doc_placeholders = ",".join("?" * len(direct_doc_ids))
+                query += f" AND d.id IN ({doc_placeholders})"
+                params.extend(list(direct_doc_ids))
+            else:
+                # 无任何权限，返回空
+                conn.close()
+                return {"documents": []}
     
     if folder_id is not None:
         query += " AND d.folder_id = ?"
@@ -1055,6 +1244,11 @@ async def list_documents(
     c.execute(query, params)
     documents = [dict(row) for row in c.fetchall()]
     conn.close()
+    
+    # 自然排序：当按文件名排序时，使用自然排序（2.xxx 排在 10.xxx 前面）
+    if sort_by == "original_name":
+        documents.sort(key=lambda d: _natural_sort_key(d.get("original_name", "")), 
+                       reverse=(sort_order.lower() == "desc"))
     
     return {"documents": documents}
 
@@ -1565,34 +1759,50 @@ async def get_permissions(target_type: str, target_id: int, token_data: dict = D
     c = conn.cursor()
     
     if target_type == "user":
-        # 获取用户的目录权限
+        # 获取用户的目录权限（含路径）
         c.execute("""SELECT fp.folder_id, f.name as folder_name, fp.can_read
                     FROM user_folder_permissions fp
                     JOIN folders f ON fp.folder_id = f.id
                     WHERE fp.user_id = ?""", (target_id,))
-        folder_permissions = [dict(row) for row in c.fetchall()]
+        folder_permissions = []
+        for row in c.fetchall():
+            d = dict(row)
+            d["folder_path"] = get_folder_path(d["folder_id"], conn)
+            folder_permissions.append(d)
         
-        # 获取用户的文档权限
+        # 获取用户的文档权限（含路径）
         c.execute("""SELECT dp.document_id, d.original_name as document_name, dp.can_read
                     FROM user_document_permissions dp
                     JOIN documents d ON dp.document_id = d.id
                     WHERE dp.user_id = ?""", (target_id,))
-        document_permissions = [dict(row) for row in c.fetchall()]
+        document_permissions = []
+        for row in c.fetchall():
+            d = dict(row)
+            d["document_path"] = get_file_path(conn, d["document_id"])
+            document_permissions.append(d)
         
     elif target_type == "group":
-        # 获取用户组的目录权限
+        # 获取用户组的目录权限（含路径）
         c.execute("""SELECT fp.folder_id, f.name as folder_name, fp.can_read
                     FROM group_folder_permissions fp
                     JOIN folders f ON fp.folder_id = f.id
                     WHERE fp.group_id = ?""", (target_id,))
-        folder_permissions = [dict(row) for row in c.fetchall()]
+        folder_permissions = []
+        for row in c.fetchall():
+            d = dict(row)
+            d["folder_path"] = get_folder_path(d["folder_id"], conn)
+            folder_permissions.append(d)
         
-        # 获取用户组的文档权限
+        # 获取用户组的文档权限（含路径）
         c.execute("""SELECT dp.document_id, d.original_name as document_name, dp.can_read
                     FROM group_document_permissions dp
                     JOIN documents d ON dp.document_id = d.id
                     WHERE dp.group_id = ?""", (target_id,))
-        document_permissions = [dict(row) for row in c.fetchall()]
+        document_permissions = []
+        for row in c.fetchall():
+            d = dict(row)
+            d["document_path"] = get_file_path(conn, d["document_id"])
+            document_permissions.append(d)
     else:
         conn.close()
         raise HTTPException(status_code=400, detail="无效的目标类型")
@@ -1667,35 +1877,35 @@ async def get_resource_permissions(
     
     if resource_type == "folder":
         # 查询已授权的用户
-        c.execute("""SELECT u.id, u.username, 'user' as type 
-                    FROM folder_permissions fp
+        c.execute("""SELECT u.id, u.username
+                    FROM user_folder_permissions fp
                     JOIN users u ON fp.user_id = u.id
-                    WHERE fp.folder_id = ? AND fp.user_id IS NOT NULL AND fp.can_read = 1""",
+                    WHERE fp.folder_id = ? AND fp.can_read = 1""",
                  (resource_id,))
         result["users"] = [dict(row) for row in c.fetchall()]
         
         # 查询已授权的用户组
-        c.execute("""SELECT g.id, g.name, 'group' as type 
-                    FROM folder_permissions fp
+        c.execute("""SELECT g.id, g.name
+                    FROM group_folder_permissions fp
                     JOIN user_groups g ON fp.group_id = g.id
-                    WHERE fp.folder_id = ? AND fp.group_id IS NOT NULL AND fp.can_read = 1""",
+                    WHERE fp.folder_id = ? AND fp.can_read = 1""",
                  (resource_id,))
         result["groups"] = [dict(row) for row in c.fetchall()]
         
     elif resource_type == "document":
         # 查询已授权的用户
-        c.execute("""SELECT u.id, u.username, 'user' as type 
-                    FROM document_permissions dp
+        c.execute("""SELECT u.id, u.username
+                    FROM user_document_permissions dp
                     JOIN users u ON dp.user_id = u.id
-                    WHERE dp.document_id = ? AND dp.user_id IS NOT NULL AND dp.can_read = 1""",
+                    WHERE dp.document_id = ? AND dp.can_read = 1""",
                  (resource_id,))
         result["users"] = [dict(row) for row in c.fetchall()]
         
         # 查询已授权的用户组
-        c.execute("""SELECT g.id, g.name, 'group' as type 
-                    FROM document_permissions dp
+        c.execute("""SELECT g.id, g.name
+                    FROM group_document_permissions dp
                     JOIN user_groups g ON dp.group_id = g.id
-                    WHERE dp.document_id = ? AND dp.group_id IS NOT NULL AND dp.can_read = 1""",
+                    WHERE dp.document_id = ? AND dp.can_read = 1""",
                  (resource_id,))
         result["groups"] = [dict(row) for row in c.fetchall()]
     
