@@ -20,6 +20,201 @@ let selectedDocuments = new Set();  // 选中的文档
 const API_BASE = '/api';
 
 // 初始化
+
+
+// 自然排序比较（2.xxx 排在 10.xxx 前面）
+function naturalCompare(a, b) {
+    if (a == null) a = '';
+    if (b == null) b = '';
+    a = String(a);
+    b = String(b);
+    var re = /(\d+\.\d+|\d+)/g;
+    var aParts = a.split(re);
+    var bParts = b.split(re);
+    for (var i = 0; i < Math.min(aParts.length, bParts.length); i++) {
+        var aP = aParts[i], bP = bParts[i];
+        if (/\d/.test(aP) && /\d/.test(bP)) {
+            var aNum = parseFloat(aP);
+            var bNum = parseFloat(bP);
+            if (aNum !== bNum) return aNum - bNum;
+        } else {
+            var cmp = aP.localeCompare(bP, 'zh-CN');
+            if (cmp !== 0) return cmp;
+        }
+    }
+    return aParts.length - bParts.length;
+}
+
+// ==================== 侧边栏目录树 ====================
+
+var folderTreeData = null;
+
+async function loadFolderTree() {
+    try {
+        var resp = await fetch(API_BASE + '/folders/tree', { credentials: 'include' });
+        if (!resp.ok) {
+            // API 失败时清空树数据（可能是因为权限不足）
+            folderTreeData = null;
+            var container = document.getElementById('folder-tree');
+            if (container) container.innerHTML = '<div style="color:#95a5a6;font-size:11px;padding:8px 12px;">暂无可访问的文件</div>';
+            return;
+        }
+        var data = await resp.json();
+        folderTreeData = data.tree || [];
+        renderFolderTree(folderTreeData);
+    } catch (e) {
+        console.error('加载目录树失败:', e);
+        folderTreeData = null;
+    }
+}
+
+function renderFolderTree(tree) {
+    var container = document.getElementById('folder-tree');
+    if (!container) return;
+    if (!tree || tree.length === 0) {
+        container.innerHTML = '<div style="color:#999;font-size:11px;padding:8px 12px;">暂无可访问的文件</div>';
+        return;
+    }
+    var html = '';
+    tree.forEach(function(node) {
+        html += renderTreeNode(node, 0);
+    });
+    container.innerHTML = html;
+    
+    // 自动展开到当前目录
+    expandToCurrentFolder();
+}
+
+function renderTreeNode(folder, depth) {
+    var hasContent = (folder.children && folder.children.length > 0) || (folder.docs && folder.docs.length > 0);
+    var toggleChar = hasContent ? '▶' : '';
+    var paddingLeft = 12 + depth * 14;
+    
+    var html = '<div class="tree-node" data-folder-id="' + folder.id + '">';
+    html += '<div class="tree-folder-header" style="padding-left:' + paddingLeft + 'px">';
+    html += '<span class="tree-toggle" onclick="toggleTreeNode(this.parentElement, ' + folder.id + ')">' + toggleChar + '</span>';
+    html += '<span class="tree-icon" onclick="navigateFromTree(this.parentElement, ' + folder.id + ')">📁</span>';
+    html += '<span class="tree-label" title="' + escapeHtml(folder.name) + '" onclick="navigateFromTree(this.parentElement, ' + folder.id + ')">' + escapeHtml(folder.name) + '</span>';
+    html += '</div>';
+    html += '<div class="tree-children" data-parent-id="' + folder.id + '">';
+    
+    // 合并子目录和文件，统一自然排序
+    var items = [];
+    if (folder.children) {
+        folder.children.forEach(function(child) {
+            items.push({ type: 'folder', name: child.name, data: child });
+        });
+    }
+    if (folder.docs) {
+        folder.docs.forEach(function(doc) {
+            items.push({ type: 'doc', name: doc.name, data: doc });
+        });
+    }
+    items.sort(function(a, b) { return naturalCompare(a.name, b.name); });
+    
+    items.forEach(function(item) {
+        if (item.type === 'folder') {
+            html += renderTreeNode(item.data, depth + 1);
+        } else {
+            var doc = item.data;
+            var docPadding = paddingLeft + 14;
+            var safeName = escapeHtml(doc.name).replace(/'/g, '&#39;');
+            html += '<div class="tree-doc" style="padding-left:' + docPadding + 'px" data-doc-id="' + doc.id + '" data-doc-name="' + safeName + '" onclick="treeNavigateDoc(this.dataset.docId, this.dataset.docName)">';
+            html += '<span class="tree-doc-icon">📄</span>';
+            html += '<span class="tree-doc-name" title="' + escapeHtml(doc.name) + '">' + escapeHtml(doc.name) + '</span>';
+            html += '</div>';
+        }
+    });
+    
+    html += '</div></div>';
+    return html;
+}
+
+function toggleTreeNode(headerEl, folderId) {
+    var toggle = headerEl.querySelector('.tree-toggle');
+    var children = headerEl.nextElementSibling;
+    if (!children) return;
+    
+    var isOpen = children.classList.contains('open');
+    if (isOpen) {
+        children.classList.remove('open');
+        toggle.classList.remove('open');
+    } else {
+        children.classList.add('open');
+        toggle.classList.add('open');
+    }
+}
+
+function navigateFromTree(headerEl, folderId) {
+    // 导航到该目录（不切换展开/折叠状态）
+    navigateToFolder(folderId, headerEl.querySelector('.tree-label').textContent);
+}
+
+function expandTreeNode(headerEl) {
+    var toggle = headerEl.querySelector('.tree-toggle');
+    var children = headerEl.nextElementSibling;
+    if (!children) return;
+    if (!children.classList.contains('open')) {
+        children.classList.add('open');
+        if (toggle) toggle.classList.add('open');
+    }
+}
+
+function treeNavigateDoc(docId, docName) {
+    viewDocument(parseInt(docId), docName);
+}
+
+function expandToCurrentFolder() {
+    // 展开树到 currentFolderId 路径
+    // 先找到所有祖先 folder id
+    var path = [];
+    var folderMap = {};
+    
+    function collectFolders(nodes) {
+        nodes.forEach(function(n) {
+            folderMap[n.id] = n;
+            if (n.children) collectFolders(n.children);
+        });
+    }
+    if (folderTreeData) collectFolders(folderTreeData);
+    
+    // 通过 API 返回的 parent_id 关系向上找路径
+    var targetId = currentFolderId;
+    var visited = new Set();
+    while (targetId && folderMap[targetId] && !visited.has(targetId)) {
+        visited.add(targetId);
+        path.unshift(targetId);
+        targetId = folderMap[targetId].parent_id;
+    }
+    
+    // 展开路径上的每个节点
+    path.forEach(function(fid) {
+        var childrenEl = document.querySelector('.tree-children[data-parent-id="' + fid + '"]');
+        if (childrenEl) {
+            childrenEl.classList.add('open');
+            var header = childrenEl.previousElementSibling;
+            if (header) {
+                var toggle = header.querySelector('.tree-toggle');
+                if (toggle) toggle.classList.add('open');
+            }
+        }
+    });
+}
+
+function showFolderTree() {
+    var container = document.getElementById('folder-tree-container');
+    if (!container) return;
+    container.classList.add('expanded');
+    // 每次显示时重新加载（确保数据是最新的）
+    loadFolderTree();
+}
+
+function hideFolderTree() {
+    var container = document.getElementById('folder-tree-container');
+    if (!container) return;
+    container.classList.remove('expanded');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     // === 防下载保护 ===
     // 禁用右键菜单
@@ -55,6 +250,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentFingerprintHash = 'unknown-' + Date.now();
     }
     
+
+
+    // ==================== 侧边栏拖动调整宽度 ====================
+    (function() {
+        var sidebar = document.getElementById('sidebar');
+        var handle = document.getElementById('sidebar-resize-handle');
+        if (!sidebar || !handle) return;
+        var startX = 0;
+        var startWidth = 0;
+        var isResizing = false;
+        
+        handle.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = sidebar.offsetWidth;
+            handle.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizing) return;
+            var newWidth = startWidth + (e.clientX - startX);
+            if (newWidth >= 180 && newWidth <= 600) {
+                sidebar.style.width = newWidth + 'px';
+            }
+        });
+        
+        document.addEventListener('mouseup', function() {
+            if (isResizing) {
+                isResizing = false;
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        });
+    })();
     checkLoginStatus();
     bindEvents();
 });
@@ -74,6 +307,24 @@ function bindEvents() {
             if (page) showPage(page);
         });
     });
+    
+    // 目录树展开/折叠按钮
+    var treeToggleBtn = document.getElementById('tree-toggle-btn');
+    if (treeToggleBtn) {
+        treeToggleBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var container = document.getElementById('folder-tree-container');
+            if (!container) return;
+            if (container.classList.contains('expanded')) {
+                hideFolderTree();
+                treeToggleBtn.textContent = '▶';
+            } else {
+                showFolderTree();
+                treeToggleBtn.textContent = '▼';
+            }
+        });
+    }
     
     const prevPage = document.getElementById('prev-page');
     const nextPage = document.getElementById('next-page');
@@ -148,6 +399,21 @@ async function handleLogout() {
     } catch (e) { console.error("Logout error:", e); }
     
     currentUser = null;
+    // 清空所有会话状态，防止下一个用户复用
+    folderTreeData = null;
+    folderPath = [];
+    currentFolderId = 1;
+    selectedDocuments.clear();
+    if (typeof selectedFolders !== 'undefined') selectedFolders.clear();
+    
+    // 清空目录树 DOM
+    var treeEl = document.getElementById('folder-tree');
+    if (treeEl) treeEl.innerHTML = '';
+    var treeContainer = document.getElementById('folder-tree-container');
+    if (treeContainer) treeContainer.classList.remove('expanded');
+    
+    // 移除 admin 标记
+    document.body.classList.remove('is-admin');
     
     localStorage.removeItem('user');
     showLoginPage();
@@ -244,11 +510,11 @@ function showMainPage() {
     document.getElementById('main-page').classList.remove('hidden');
     document.getElementById('current-user').textContent = currentUser.username;
     
-    const adminElements = document.querySelectorAll('.admin-only');
+    // 使用 CSS class 控制 admin-only 元素（配合 body.is-admin）
     if (currentUser.role === 'admin') {
-        adminElements.forEach(el => el.style.display = '');
+        document.body.classList.add('is-admin');
     } else {
-        adminElements.forEach(el => el.style.display = 'none');
+        document.body.classList.remove('is-admin');
     }
     
     loadDocuments();
@@ -291,8 +557,15 @@ function showPage(pageName) {
         if (item.dataset.page === pageName) item.classList.add('active');
     });
     
+    // 切换到非文档页面时隐藏目录树
+    if (pageName !== 'documents') {
+        hideFolderTree();
+        var btn = document.getElementById('tree-toggle-btn');
+        if (btn) btn.textContent = '▶';
+    }
+    
     switch (pageName) {
-        case 'documents': loadDocuments(); break;
+        case 'documents': loadDocuments(); showFolderTree(); var btn = document.getElementById('tree-toggle-btn'); if (btn) btn.textContent = '▼'; break;
         case 'logs': loadAccessLogs(); break;
         case 'fingerprints': loadFingerprints(); break;
         case 'users': loadUsers(); break;
@@ -307,12 +580,12 @@ function showPage(pageName) {
 
 async function loadDocuments() {
     const search = document.getElementById('search-input')?.value || '';
-    const sortBy = document.getElementById('sort-by')?.value || 'uploaded_at';
-    const sortOrder = document.getElementById('sort-order')?.value || 'desc';
+    const sortBy = document.getElementById('sort-by')?.value || 'original_name';
+    const sortOrder = document.getElementById('sort-order')?.value || 'asc';
     
     try {
-        // 加载当前目录的子目录
-        const foldersResponse = await fetch(`${API_BASE}/folders?parent_id=${currentFolderId}`, {
+        // 加载当前目录的子目录（传递排序参数）
+        const foldersResponse = await fetch(`${API_BASE}/folders?parent_id=${currentFolderId}&sort_by=${sortBy}&sort_order=${sortOrder}`, {
             credentials: 'include',
         });
         const foldersData = await foldersResponse.json();
@@ -324,7 +597,10 @@ async function loadDocuments() {
         const docsData = await docsResponse.json();
         
         if (foldersResponse.ok && docsResponse.ok) {
-            renderFileList(foldersData.folders, docsData.documents);
+            // 合并目录和文件，统一排序
+            const sortBy = document.getElementById('sort-by')?.value || 'original_name';
+            const sortOrder = document.getElementById('sort-order')?.value || 'asc';
+            renderFileList(foldersData.folders, docsData.documents, sortBy, sortOrder);
             updateBreadcrumb();
         }
     } catch (error) {
@@ -332,63 +608,96 @@ async function loadDocuments() {
     }
 }
 
-function renderFileList(folders, documents) {
+function renderFileList(folders, documents, sortBy, sortOrder) {
     const tbody = document.getElementById('file-body');
     selectedDocuments.clear();
-            selectedFolders.clear();
     selectedFolders.clear();
     updateBatchBar();
     
-    let html = '';
-    
-    // 渲染目录
-    folders.forEach(folder => {
-        html += `
-            <tr class="file-row folder" data-id="${folder.id}" data-type="folder">
-                <td class="col-checkbox admin-only"><input type="checkbox" class="folder-checkbox" value="${folder.id}" onchange="toggleFolderSelect(${folder.id})"></td>
-                <td class="col-icon">📁</td>
-                <td class="file-name" onclick="navigateToFolder(${folder.id}, '${escapeHtml(folder.name)}')">
-                    ${escapeHtml(folder.name)}
-                    <span class="file-count">(${folder.subfolder_count} 个目录, ${folder.doc_count} 个文件)</span>
-                </td>
-                <td class="col-size">${formatFileSize(folder.total_size)}</td>
-                <td class="col-creator">${escapeHtml(folder.creator_name || '-')}</td>
-                <td class="col-time">${formatDate(folder.created_at)}</td>
-                <td class="col-time">${formatDate(folder.updated_at)}</td>
-                <td class="col-actions admin-only">
-                    <button class="btn-action btn-edit" onclick="showRenameFolderModal(${folder.id}, '${escapeHtml(folder.name)}')" title="重命名">✏️</button>
-                    <button class="btn-action btn-move" onclick="showPermissionModal('folder', ${folder.id}, '${escapeHtml(folder.name)}')" title="权限">🔐</button>
-                    <button class="btn-action btn-delete" onclick="deleteFolder(${folder.id})" title="删除">🗑️</button>
-                </td>
-            </tr>
-        `;
+    // 合并目录和文件为统一列表
+    var items = [];
+    folders.forEach(function(folder) {
+        items.push({ type: 'folder', data: folder });
+    });
+    documents.forEach(function(doc) {
+        items.push({ type: 'document', data: doc });
     });
     
-    // 渲染文档
-    documents.forEach(doc => {
-        html += `
-            <tr class="file-row document" data-id="${doc.id}" data-type="document">
-                <td class="col-checkbox admin-only">
-                    <input type="checkbox" class="doc-checkbox" value="${doc.id}" onchange="toggleDocumentSelect(${doc.id})">
-                </td>
-                <td class="col-icon">📄</td>
-                <td class="file-name" onclick="viewDocument(${doc.id}, '${escapeHtml(doc.original_name)}')">
-                    ${escapeHtml(doc.original_name)}
-                </td>
-                <td class="col-size">${formatFileSize(doc.file_size)}</td>
-                <td class="col-creator">${escapeHtml(doc.uploader_name || '-')}</td>
-                <td class="col-time">${formatDate(doc.uploaded_at)}</td>
-                <td class="col-time">${formatDate(doc.updated_at)}</td>
-                <td class="col-actions admin-only">
-                    <button class="btn-action btn-move" onclick="showMoveDocModal(${doc.id})" title="移动">📁</button>
-                    <button class="btn-action btn-move" onclick="showPermissionModal('document', ${doc.id}, '${escapeHtml(doc.original_name)}')" title="权限">🔐</button>
-                    <button class="btn-action btn-delete" onclick="deleteDocument(${doc.id})" title="删除">🗑️</button>
-                </td>
-            </tr>
-        `;
+    // 统一排序
+    var sortField = sortBy || 'original_name';
+    var reverse = (sortOrder || 'asc').toLowerCase() === 'desc';
+    
+    items.sort(function(a, b) {
+        var va, vb;
+        if (a.type === 'folder') {
+            va = a.data.name || '';
+        } else {
+            va = a.data.original_name || '';
+        }
+        if (b.type === 'folder') {
+            vb = b.data.name || '';
+        } else {
+            vb = b.data.original_name || '';
+        }
+        
+        // 对于其他排序字段
+        if (sortField === 'file_size') {
+            va = a.type === 'folder' ? (a.data.total_size || 0) : (a.data.file_size || 0);
+            vb = b.type === 'folder' ? (b.data.total_size || 0) : (b.data.file_size || 0);
+            return reverse ? (vb - va) : (va - vb);
+        } else if (sortField === 'uploaded_at') {
+            va = a.type === 'folder' ? (a.data.created_at || '') : (a.data.uploaded_at || '');
+            vb = b.type === 'folder' ? (b.data.created_at || '') : (b.data.uploaded_at || '');
+        } else if (sortField === 'updated_at') {
+            va = a.data.updated_at || '';
+            vb = b.data.updated_at || '';
+        }
+        // original_name / name: 字符串比较
+        var cmp = naturalCompare(va, vb);
+        return reverse ? -cmp : cmp;
     });
     
-    if (!folders.length && !documents.length) {
+    var html = '';
+    
+    items.forEach(function(item) {
+        if (item.type === 'folder') {
+            var folder = item.data;
+            html += '<tr class="file-row folder" data-id="' + folder.id + '" data-type="folder">';
+            html += '<td class="col-checkbox admin-only"><input type="checkbox" class="folder-checkbox" value="' + folder.id + '" onchange="toggleFolderSelect(' + folder.id + ')"></td>';
+            html += '<td class="col-icon">📁</td>';
+            html += '<td class="file-name" onclick="navigateToFolder(' + folder.id + ', \'' + escapeHtml(folder.name).replace(/'/g, "\\'") + '\')">';
+            html += escapeHtml(folder.name);
+            html += ' <span class="file-count">(' + folder.subfolder_count + ' 个目录, ' + folder.doc_count + ' 个文件)</span>';
+            html += '</td>';
+            html += '<td class="col-size">' + formatFileSize(folder.total_size) + '</td>';
+            html += '<td class="col-creator">' + escapeHtml(folder.creator_name || '-') + '</td>';
+            html += '<td class="col-time">' + formatDate(folder.created_at) + '</td>';
+            html += '<td class="col-time">' + formatDate(folder.updated_at) + '</td>';
+            html += '<td class="col-actions admin-only">';
+            html += '<button class="btn-action btn-edit" onclick="showRenameFolderModal(' + folder.id + ', \'' + escapeHtml(folder.name).replace(/'/g, "\\'") + '\')" title="重命名">✏️</button>';
+            html += '<button class="btn-action btn-move" onclick="showPermissionModal(\'folder\', ' + folder.id + ', \'' + escapeHtml(folder.name).replace(/'/g, "\\'") + '\')" title="权限">🔐</button>';
+            html += '<button class="btn-action btn-delete" onclick="deleteFolder(' + folder.id + ')" title="删除">🗑️</button>';
+            html += '</td></tr>';
+        } else {
+            var doc = item.data;
+            html += '<tr class="file-row document" data-id="' + doc.id + '" data-type="document">';
+            html += '<td class="col-checkbox admin-only"><input type="checkbox" class="doc-checkbox" value="' + doc.id + '" onchange="toggleDocumentSelect(' + doc.id + ')"></td>';
+            html += '<td class="col-icon">📄</td>';
+            html += '<td class="file-name" onclick="viewDocument(' + doc.id + ', \'' + escapeHtml(doc.original_name).replace(/'/g, "\\'") + '\')">';
+            html += escapeHtml(doc.original_name) + '</td>';
+            html += '<td class="col-size">' + formatFileSize(doc.file_size) + '</td>';
+            html += '<td class="col-creator">' + escapeHtml(doc.uploader_name || '-') + '</td>';
+            html += '<td class="col-time">' + formatDate(doc.uploaded_at) + '</td>';
+            html += '<td class="col-time">' + formatDate(doc.updated_at) + '</td>';
+            html += '<td class="col-actions admin-only">';
+            html += '<button class="btn-action btn-move" onclick="showMoveDocModal(' + doc.id + ')" title="移动">📁</button>';
+            html += '<button class="btn-action btn-move" onclick="showPermissionModal(\'document\', ' + doc.id + ', \'' + escapeHtml(doc.original_name).replace(/'/g, "\\'") + '\')" title="权限">🔐</button>';
+            html += '<button class="btn-action btn-delete" onclick="deleteDocument(' + doc.id + ')" title="删除">🗑️</button>';
+            html += '</td></tr>';
+        }
+    });
+    
+    if (items.length === 0) {
         html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">此目录为空</td></tr>';
     }
     
@@ -397,7 +706,37 @@ function renderFileList(folders, documents) {
 
 function navigateToFolder(folderId, folderName) {
     currentFolderId = folderId;
-    folderPath.push({ id: folderId, name: folderName });
+    // 从树数据中重建完整路径
+    if (folderTreeData) {
+        var path = [];
+        var folderMap = {};
+        function collectFolders(nodes) {
+            nodes.forEach(function(n) {
+                folderMap[n.id] = n;
+                if (n.children) collectFolders(n.children);
+            });
+        }
+        collectFolders(folderTreeData);
+        
+        var targetId = folderId;
+        var visited = new Set();
+        while (targetId && folderMap[targetId] && !visited.has(targetId)) {
+            // 跳过根目录节点（breadcrumb 已经有固定的根目录链接）
+            if (targetId !== 1) {
+                path.unshift({ id: targetId, name: folderMap[targetId].name });
+            }
+            visited.add(targetId);
+            targetId = folderMap[targetId].parent_id;
+        }
+        // 如果找到了完整路径就使用，否则回退到简单 push
+        if (path.length > 0) {
+            folderPath = path;
+        } else {
+            folderPath.push({ id: folderId, name: folderName });
+        }
+    } else {
+        folderPath.push({ id: folderId, name: folderName });
+    }
     loadDocuments();
 }
 

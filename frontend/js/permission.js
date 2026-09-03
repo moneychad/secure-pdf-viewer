@@ -80,6 +80,74 @@ function showPermissionModal(resourceType, resourceId, resourceName) {
     document.getElementById('perm-selected-target').style.display = 'none';
     document.getElementById('permission-modal').classList.remove('hidden');
     loadAllPermTargets('perm-search-results', 'selectPermTarget');
+    loadExistingPermissions(resourceType, resourceId);
+}
+
+// 加载已有权限列表
+function loadExistingPermissions(resourceType, resourceId) {
+    var container = document.getElementById('existing-permissions');
+    if (!container) return;
+    container.innerHTML = '<div style="color:#999;font-size:13px;">加载中...</div>';
+    
+    fetch(API_BASE + '/resource-permissions/' + resourceType + '/' + resourceId, {
+        credentials: 'include'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        var users = data.users || [];
+        var groups = data.groups || [];
+        var html = '';
+        
+        if (users.length === 0 && groups.length === 0) {
+            html = '<div style="color:#999;font-size:13px;padding:8px 0;">暂无已授权的用户或用户组</div>';
+        } else {
+            html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee;">';
+            html += '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px;">已授权列表（点击移除）</div>';
+            
+            users.forEach(function(u) {
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;font-size:13px;background:#f8f9fa;border-radius:4px;margin-bottom:4px;">';
+                html += '<span>👤 ' + escapeHtml(u.username) + '</span>';
+                html += '<button class="btn-sm" style="color:#e74c3c;cursor:pointer;background:none;border:1px solid #e74c3c;border-radius:3px;padding:2px 8px;font-size:12px;" onclick="removePermissionItem(\'user\', ' + u.id + ', \'' + resourceType + '\', ' + resourceId + ')">移除</button>';
+                html += '</div>';
+            });
+            
+            groups.forEach(function(g) {
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;font-size:13px;background:#f8f9fa;border-radius:4px;margin-bottom:4px;">';
+                html += '<span>👥 ' + escapeHtml(g.name) + '</span>';
+                html += '<button class="btn-sm" style="color:#e74c3c;cursor:pointer;background:none;border:1px solid #e74c3c;border-radius:3px;padding:2px 8px;font-size:12px;" onclick="removePermissionItem(\'group\', ' + g.id + ', \'' + resourceType + '\', ' + resourceId + ')">移除</button>';
+                html += '</div>';
+            });
+            
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    })
+    .catch(function(err) {
+        container.innerHTML = '<div style="color:#e74c3c;font-size:13px;">加载已有权限失败</div>';
+    });
+}
+
+// 移除权限
+function removePermissionItem(targetType, targetId, resourceType, resourceId) {
+    var typeLabel = targetType === 'user' ? '用户' : '用户组';
+    if (!confirm('确定要移除该' + typeLabel + '的权限吗？')) return;
+    
+    fetch(API_BASE + '/permissions/' + targetType + '/' + targetId + '/' + resourceType + '/' + resourceId, {
+        credentials: 'include',
+        method: 'DELETE'
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+        if (data.message) {
+            loadExistingPermissions(resourceType, resourceId);
+        } else {
+            alert(data.detail || '移除失败');
+        }
+    })
+    .catch(function(err) {
+        console.error('移除权限失败:', err);
+        alert('网络错误，请重试');
+    });
 }
 
 // 搜索用户和用户组

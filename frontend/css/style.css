@@ -1256,3 +1256,122 @@ tr:hover {
 .agreement-accept-btn {
     min-width: 120px;
 }
+
+
+/* ==================== 侧边栏目录树 ==================== */
+.folder-tree-container {
+    display: none;
+    margin: 0;
+    padding: 0;
+}
+.folder-tree-container.expanded {
+    display: block;
+    border-top: 1px solid #3d566e;
+    margin-top: 4px;
+    padding-top: 4px;
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+.folder-tree {
+    font-size: 12px;
+    line-height: 1.6;
+}
+.tree-node {
+    padding: 0;
+}
+.tree-folder-header {
+    display: flex;
+    align-items: center;
+    padding: 3px 8px 3px 12px;
+    cursor: pointer;
+    color: #ecf0f1;
+    border-radius: 4px;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tree-folder-header:hover {
+    background: #34495e;
+}
+.tree-toggle {
+    display: inline-block;
+    width: 14px;
+    font-size: 10px;
+    color: #95a5a6;
+    flex-shrink: 0;
+    text-align: center;
+    transition: transform 0.15s;
+}
+.tree-toggle.open {
+    transform: rotate(90deg);
+}
+.tree-icon {
+    margin-right: 4px;
+    flex-shrink: 0;
+}
+.tree-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tree-children {
+    display: none;
+    padding-left: 14px;
+}
+.tree-children.open {
+    display: block;
+}
+.tree-doc {
+    display: flex;
+    align-items: center;
+    padding: 2px 8px 2px 12px;
+    cursor: pointer;
+    color: #bdc3c7;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tree-doc:hover {
+    background: #34495e;
+}
+.tree-doc-icon {
+    margin-right: 4px;
+    flex-shrink: 0;
+    font-size: 11px;
+}
+.tree-doc-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* ==================== 可拖动侧边栏 ==================== */
+.sidebar {
+    position: relative;
+    min-width: 180px;
+    max-width: 600px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    height: calc(100vh - 60px);
+}
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 5px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 10;
+    transition: background 0.2s;
+}
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.active {
+    background: #3498db;
+}
+
+/* ==================== admin-only CSS控制 ==================== */
+body:not(.is-admin) .admin-only {
+    display: none !important;
+}
