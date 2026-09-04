@@ -11,9 +11,7 @@
         <!-- 登录页面 -->
         <div id="login-page" class="page">
             <div class="login-container">
-                <div class="login-logo-area">
-                    <img src="/assets/logo_login.png" alt="AUV-X Technologies" class="login-page-logo">
-                </div>
+                <h1 style="text-align:center;margin-bottom:24px;color:#333;font-size:22px">🔒 安全文档共享平台</h1>
                 <form id="login-form">
                     <div class="form-group">
                         <label>用户名</label>
@@ -33,9 +31,7 @@
         <div id="main-page" class="page hidden">
             <header>
                 <div class="header-left">
-                    <div class="header-brand">
-                        <img src="/assets/logo_header.png" alt="AUV-X" class="header-logo-img">
-                    </div>
+                    <h1 style="font-size:18px;color:#333">🔒 安全文档共享平台</h1>
                 </div>
                 <div class="header-right">
                     <span id="current-user"></span>
@@ -59,6 +55,7 @@
                         <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
                         <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
                         <a href="#" class="nav-item admin-only" data-page="audit-logs">📋 审计日志</a>
+                        <a href="#" class="nav-item" data-page="change-history">📝 变更动态</a>
                         <a href="#" class="nav-item admin-only" data-page="users">👥 用户管理</a>
                         <a href="#" class="nav-item admin-only" data-page="groups">👪 用户组管理</a>                        <a href="#" class="nav-item admin-only" data-page="permissions">🔐 权限配置</a>
                         <a href="#" class="nav-item" data-page="password">🔑 修改密码</a>
@@ -110,6 +107,12 @@
                             <button class="btn-primary" onclick="showBatchPermissionModal()">🔐 批量权限</button>
                         </div>
                         
+                        <!-- 目录说明 -->
+                        <div id="folder-description-bar" class="folder-description-bar" style="display:none;">
+                            <span id="folder-description-text"></span>
+                            <button id="folder-desc-edit-btn" class="btn-desc-edit admin-only" onclick="editFolderDescription()" title="编辑目录说明">✏️ 编辑说明</button>
+                        </div>
+                        
                         <!-- 目录和文档列表 -->
                         <div class="file-list">
                             <table id="file-table">
@@ -142,8 +145,15 @@
                                 <button id="prev-page" class="btn-nav">◀ 上一页</button>
                                 <button id="next-page" class="btn-nav">下一页 ▶</button>
                             </div>
-                            <div class="pdf-viewer-wrapper">
-                                <img id="pdf-viewer-img" style="max-width:100%;height:auto;display:block;margin:0 auto;" alt="文档内容">
+                            <div class="zoom-toolbar">
+                                <button id="zoom-out" class="zoom-btn" title="缩小">🔍−</button>
+                                <span id="zoom-level">100%</span>
+                                <button id="zoom-in" class="zoom-btn" title="放大">🔍+</button>
+                                <button id="zoom-fit" class="zoom-btn" title="适应宽度">适应宽度</button>
+                                <button id="zoom-reset" class="zoom-btn" title="重置">1:1</button>
+                            </div>
+                            <div class="pdf-viewer-wrapper" id="pdf-viewer-wrapper">
+                                <img id="pdf-viewer-img" draggable="false" alt="文档内容">
                                 <div id="watermark-overlay"></div>
                             </div>
                         </div>
@@ -342,6 +352,24 @@
                         </div>
                     </div>
 
+                    <!-- 变更动态 -->
+                    <div id="page-change-history" class="content-page">
+                        <h2>📝 变更动态</h2>
+                        <div class="change-history-filters">
+                            <select id="change-action-filter" onchange="loadChangeHistory(1)">
+                                <option value="">全部操作</option>
+                                <option value="upload">上传</option>
+                                <option value="delete">删除</option>
+                                <option value="move">移动</option>
+                                <option value="create_folder">创建目录</option>
+                                <option value="delete_folder">删除目录</option>
+                            </select>
+                            <input type="text" id="change-folder-filter" placeholder="按目录路径筛选..." onkeyup="loadChangeHistory(1)">
+                        </div>
+                        <div id="change-history-list" class="change-history-list"></div>
+                        <div id="change-history-pagination" class="pagination"></div>
+                    </div>
+
                     <!-- 修改密码 -->
                     <div id="page-password" class="content-page">
                         <h2>修改密码</h2>
@@ -481,10 +509,10 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=6.2"></script>
-    <script src="/js/groups.js?v=6.12"></script>
-    <script src="/js/extend.js?v=6.5"></script>
-    <script src="/js/permission.js?v=6.5"></script>
+    <script src="/js/app.js?v=7.4"></script>
+    <script src="/js/groups.js?v=7.4"></script>
+    <script src="/js/extend.js?v=7.4"></script>
+    <script src="/js/permission.js?v=7.4"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->

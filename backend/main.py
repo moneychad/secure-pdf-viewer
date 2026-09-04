@@ -197,6 +197,24 @@ def init_db():
         language TEXT
     )''')
     
+    # 目录说明字段（如果不存在则添加）
+    try:
+        c.execute("ALTER TABLE folders ADD COLUMN description TEXT DEFAULT ''")
+    except:
+        pass
+    
+    # 变更历史表
+    c.execute('''CREATE TABLE IF NOT EXISTS change_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        username TEXT,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_name TEXT NOT NULL,
+        folder_path TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
     # 创建默认管理员
     admin_hash = hash_password(ADMIN_PASSWORD)
     c.execute("INSERT OR IGNORE INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, ?)",
@@ -243,9 +261,11 @@ class GroupUpdate(BaseModel):
 class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[int] = 1
+    description: Optional[str] = ""
 
 class FolderUpdate(BaseModel):
-    name: str
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 class DocumentMove(BaseModel):
     folder_id: int
@@ -343,6 +363,37 @@ def log_audit(conn, user_id, username, action, target_type=None, target_id=None,
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
               (user_id, username, action, target_type, target_id, target_name, details, ip_address, 
                beijing_time.strftime('%Y-%m-%d %H:%M:%S')))
+
+def log_change(conn, user_id, username, action, target_type, target_name, folder_path=''):
+    """记录变更历史（用户可见）"""
+    c = conn.cursor()
+    from datetime import timedelta
+    beijing_time = datetime.now(timezone(timedelta(hours=8)))
+    c.execute("""INSERT INTO change_history 
+                (user_id, username, action, target_type, target_name, folder_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (user_id, username, action, target_type, target_name, folder_path,
+               beijing_time.strftime('%Y-%m-%d %H:%M:%S')))
+
+def get_folder_path_str(conn, folder_id):
+    """获取目录的完整路径字符串"""
+    if not folder_id:
+        return '/'
+    c = conn.cursor()
+    path_parts = []
+    cur = folder_id
+    visited = set()
+    while cur and cur not in visited:
+        visited.add(cur)
+        c.execute("SELECT name, parent_id FROM folders WHERE id = ?", (cur,))
+        row = c.fetchone()
+        if row:
+            path_parts.append(row['name'])
+            cur = row['parent_id']
+        else:
+            break
+    path_parts.reverse()
+    return '/' + '/'.join(path_parts)
 
 def get_db():
     """获取数据库连接（注意：调用方需要手动关闭连接）"""
@@ -963,7 +1014,7 @@ async def get_folder_tree(token_data: dict = Depends(verify_token)):
     
     if is_admin:
         # 管理员看所有活跃目录
-        c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+        c.execute("SELECT id, name, parent_id, COALESCE(description,'') as description FROM folders WHERE is_active = 1")
         all_folders = [dict(row) for row in c.fetchall()]
         c.execute("SELECT id, original_name, folder_id FROM documents WHERE is_active = 1 ORDER BY original_name")
         all_docs = [dict(row) for row in c.fetchall()]
@@ -983,7 +1034,7 @@ async def get_folder_tree(token_data: dict = Depends(verify_token)):
                 direct_doc_ids.update(r["document_id"] for r in c.fetchall())
         
         # 只返回有权限的目录
-        c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+        c.execute("SELECT id, name, parent_id, COALESCE(description,'') as description FROM folders WHERE is_active = 1")
         all_folders = [dict(row) for row in c.fetchall() if row["id"] in accessible_ids]
         
         # 记录原始有权限的目录ID（用于文档过滤，不包含后续补充的祖先目录）
@@ -1026,7 +1077,7 @@ async def get_folder_tree(token_data: dict = Depends(verify_token)):
                     need_ancestors.add(fid)
         
         if need_ancestors:
-            c.execute("SELECT id, name, parent_id FROM folders WHERE is_active = 1")
+            c.execute("SELECT id, name, parent_id, COALESCE(description,'') as description FROM folders WHERE is_active = 1")
             extra_folders = [dict(row) for row in c.fetchall() if row["id"] in need_ancestors and row["id"] not in all_folder_ids]
             all_folders.extend(extra_folders)
     
@@ -1076,48 +1127,55 @@ async def create_folder(folder: FolderCreate, token_data: dict = Depends(verify_
         conn.close()
         raise HTTPException(status_code=400, detail="同级目录下已存在同名目录")
     
-    c.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)",
-              (folder.name, folder.parent_id, token_data["username"]))
+    c.execute("INSERT INTO folders (name, parent_id, created_by, description) VALUES (?, ?, ?, ?)",
+              (folder.name, folder.parent_id, token_data["username"], folder.description or ""))
     folder_id = c.lastrowid
     
     # 记录审计日志
     log_audit(conn, token_data.get("user_id"), token_data["username"],
               "CREATE_FOLDER", "folder", folder_id, folder.name, None, None)
+    log_change(conn, token_data.get("user_id"), token_data["username"], "create_folder", "folder", folder.name, get_folder_path_str(conn, folder.parent_id))
     conn.commit()
     conn.close()
     
     return {"folder_id": folder_id, "message": "目录创建成功"}
 
 @app.put("/api/folders/{folder_id}")
-async def rename_folder(folder_id: int, folder_update: FolderUpdate, token_data: dict = Depends(verify_token)):
+async def update_folder(folder_id: int, folder_update: FolderUpdate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="只有管理员可以重命名目录")
+        raise HTTPException(status_code=403, detail="只有管理员可以修改目录")
     
     conn = get_db()
     c = conn.cursor()
     
-    c.execute("SELECT id, parent_id FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
+    c.execute("SELECT id, parent_id, name FROM folders WHERE id = ? AND is_active = 1", (folder_id,))
     folder = c.fetchone()
     if not folder:
         conn.close()
         raise HTTPException(status_code=404, detail="目录不存在")
     
-    if folder_id == 1:
-        conn.close()
-        raise HTTPException(status_code=400, detail="不能重命名根目录")
+    # 更新名称
+    if folder_update.name is not None and folder_update.name != folder["name"]:
+        if folder_id == 1:
+            conn.close()
+            raise HTTPException(status_code=400, detail="不能重命名根目录")
+        c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND id != ? AND is_active = 1",
+                  (folder_update.name, folder["parent_id"], folder_id))
+        if c.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="同级目录下已存在同名目录")
+        c.execute("UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (folder_update.name, folder_id))
     
-    c.execute("SELECT id FROM folders WHERE name = ? AND parent_id = ? AND id != ? AND is_active = 1",
-              (folder_update.name, folder["parent_id"], folder_id))
-    if c.fetchone():
-        conn.close()
-        raise HTTPException(status_code=400, detail="同级目录下已存在同名目录")
+    # 更新说明
+    if folder_update.description is not None:
+        c.execute("UPDATE folders SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                  (folder_update.description, folder_id))
     
-    c.execute("UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-              (folder_update.name, folder_id))
     conn.commit()
     conn.close()
     
-    return {"message": "目录重命名成功"}
+    return {"message": "目录更新成功"}
 
 @app.delete("/api/folders/{folder_id}")
 async def delete_folder(folder_id: int, token_data: dict = Depends(verify_token)):
@@ -1149,11 +1207,17 @@ async def delete_folder(folder_id: int, token_data: dict = Depends(verify_token)
     # 记录审计日志
     log_audit(conn, token_data.get("user_id"), token_data["username"],
               "DELETE_FOLDER", "folder", folder_id, None, None, None)
+    
+    # 获取目录名用于变更历史
+    c.execute("SELECT name, parent_id FROM folders WHERE id = ?", (folder_id,))
+    folder_info = c.fetchone()
+    folder_name = folder_info["name"] if folder_info else "未知目录"
 
     # 删除所有目录下的文档（标记为非活跃）
     c.execute(f"UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE folder_id IN ({placeholders})", all_folder_ids)
     # 删除所有子目录（标记为非活跃）
     c.execute(f"UPDATE folders SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})", all_folder_ids)
+    log_change(conn, token_data.get("user_id"), token_data["username"], "delete_folder", "folder", folder_name, get_folder_path_str(conn, folder_info["parent_id"] if folder_info else None))
     conn.commit()
     conn.close()
     
@@ -1288,6 +1352,7 @@ async def upload_document(
     c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
               (filename, file.filename, len(content), folder_id, token_data["username"]))
     doc_id = c.lastrowid
+    log_change(conn, token_data.get("user_id"), token_data["username"], "upload", "document", file.filename, get_folder_path_str(conn, folder_id))
     conn.commit()
     conn.close()
     
@@ -1468,6 +1533,7 @@ async def upload_directory_single(
 
     c.execute("INSERT INTO documents (filename, original_name, file_size, folder_id, uploaded_by) VALUES (?, ?, ?, ?, ?)",
               (stored_name, filename, len(content), parent_id, token_data["username"]))
+    log_change(conn, token_data.get("user_id"), token_data["username"], "upload", "document", filename, get_folder_path_str(conn, parent_id))
     conn.commit()
     conn.close()
     return {"success": True, "filename": filename, "message": f"上传成功: {filename}"}
@@ -1632,7 +1698,14 @@ async def delete_document(doc_id: int, token_data: dict = Depends(verify_token))
     log_audit(conn, token_data.get("user_id"), token_data["username"],
               "DELETE_DOCUMENT", "document", doc_id, None, None, None)
     
+    # 获取文件名用于变更历史
+    c.execute("SELECT original_name, folder_id FROM documents WHERE id = ?", (doc_id,))
+    doc_info = c.fetchone()
+    doc_name = doc_info["original_name"] if doc_info else "未知文件"
+    doc_folder = doc_info["folder_id"] if doc_info else None
+    
     c.execute("UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (doc_id,))
+    log_change(conn, token_data.get("user_id"), token_data["username"], "delete", "document", doc_name, get_folder_path_str(conn, doc_folder))
     conn.commit()
     conn.close()
     
@@ -1650,9 +1723,17 @@ async def batch_delete_documents(batch: BatchDelete, token_data: dict = Depends(
     c = conn.cursor()
     
     placeholders = ','.join(['?' for _ in batch.document_ids])
+    # 获取文件名用于变更历史
+    c.execute(f"SELECT original_name, folder_id FROM documents WHERE id IN ({placeholders})", batch.document_ids)
+    deleted_docs = c.fetchall()
+    
     c.execute(f"UPDATE documents SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
               batch.document_ids)
     deleted_count = c.rowcount
+    
+    for doc in deleted_docs:
+        log_change(conn, token_data.get("user_id"), token_data["username"], "delete", "document", doc["original_name"], get_folder_path_str(conn, doc["folder_id"]))
+    
     conn.commit()
     conn.close()
     
@@ -2103,6 +2184,43 @@ async def get_audit_logs(
     
     c.execute("SELECT COUNT(*) as total FROM audit_logs")
     total = c.fetchone()["total"]
+    
+    conn.close()
+    return {"logs": logs, "total": total, "page": page, "limit": limit}
+
+@app.get("/api/change-history")
+async def get_change_history(
+    page: int = 1,
+    limit: int = 50,
+    action: Optional[str] = None,
+    folder_path: Optional[str] = None,
+    token_data: dict = Depends(verify_token)
+):
+    """获取变更历史（所有用户可见）"""
+    conn = get_db()
+    c = conn.cursor()
+    
+    offset = (page - 1) * limit
+    conditions = []
+    params = []
+    
+    if action:
+        conditions.append("action = ?")
+        params.append(action)
+    if folder_path:
+        conditions.append("folder_path LIKE ?")
+        params.append(f"%{folder_path}%")
+    
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+    
+    c.execute(f"SELECT COUNT(*) as total FROM change_history {where}", params)
+    total = c.fetchone()["total"]
+    
+    c.execute(f"SELECT * FROM change_history {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+              params + [limit, offset])
+    logs = [dict(row) for row in c.fetchall()]
     
     conn.close()
     return {"logs": logs, "total": total, "page": page, "limit": limit}

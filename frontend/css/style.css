@@ -725,17 +725,52 @@ tr:hover {
     min-height: 24px;
 }
 
+/* 缩放工具栏 */
+.zoom-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 8px 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+.zoom-btn {
+    padding: 4px 12px;
+    background: #ecf0f1;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #2c3e50;
+    transition: background 0.2s;
+}
+.zoom-btn:hover {
+    background: #d5dbdb;
+}
+#zoom-level {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2c3e50;
+    min-width: 50px;
+    text-align: center;
+    user-select: none;
+}
+
 /* PDF 查看器优化 */
 .pdf-viewer-wrapper {
     position: relative;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: flex-start;
     overflow: auto;
     max-height: 75vh;
     padding: 20px;
     background: #f0f0f0;
     border-radius: 5px;
+}
+.pdf-viewer-wrapper.zoomed-fit {
+    justify-content: center;
 }
 
 #pdf-canvas {
@@ -750,6 +785,10 @@ tr:hover {
     height: auto;
     box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     border: 1px solid #ddd;
+    transition: transform 0.15s ease;
+    transform-origin: center top;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 .viewer-container {
@@ -758,6 +797,133 @@ tr:hover {
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     margin-top: 15px;
+}
+
+/* 目录说明 */
+.tree-desc {
+    display: block;
+    font-size: 11px;
+    color: #95a5a6;
+    padding: 0 8px 2px 26px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+}
+.folder-desc-inline {
+    font-size: 12px;
+    color: #7f8c8d;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 400px;
+}
+.folder-description-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    background: #f8f9fa;
+    border-left: 3px solid #3498db;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #555;
+}
+.btn-desc-edit {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.btn-desc-edit:hover {
+    opacity: 1;
+    background: #e8e8e8;
+}
+
+/* 变更动态 */
+.change-history-filters {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+.change-history-filters select,
+.change-history-filters input {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.change-history-filters input {
+    flex: 1;
+    min-width: 200px;
+}
+.change-history-list {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+.change-day-header {
+    padding: 10px 16px;
+    background: #f8f9fa;
+    font-weight: 600;
+    font-size: 14px;
+    color: #2c3e50;
+    border-bottom: 1px solid #eee;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.change-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+.change-item:hover {
+    background: #fafafa;
+}
+.change-item:last-child {
+    border-bottom: none;
+}
+.change-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+}
+.change-content {
+    flex: 1;
+    color: #333;
+    line-height: 1.5;
+}
+.change-user {
+    font-weight: 600;
+    color: #2c3e50;
+}
+.change-target {
+    color: #2980b9;
+    word-break: break-all;
+}
+.change-folder {
+    color: #7f8c8d;
+    font-size: 12px;
+}
+.change-time {
+    color: #95a5a6;
+    font-size: 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* 权限配置样式 */

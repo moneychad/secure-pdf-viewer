@@ -13,6 +13,7 @@ let totalPages = 0;
 let pageStartTime = null;
 let currentFingerprintHash = null;
 let currentFolderId = 1;  // 当前目录ID
+let currentFolderDescription = '';  // 当前目录说明
 let folderPath = [];  // 目录路径
 let selectedDocuments = new Set();  // 选中的文档
 
@@ -335,6 +336,97 @@ function bindEvents() {
         if (currentPage < totalPages) { currentPage++; renderPage(currentPage); }
     });
     
+    // ===== 缩放功能 =====
+    let zoomLevel = 1.0;
+    const ZOOM_MIN = 0.25;
+    const ZOOM_MAX = 5.0;
+    const ZOOM_STEP = 0.15;
+
+    function updateZoom() {
+        var img = document.getElementById('pdf-viewer-img');
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        if (!img || !wrapper) return;
+        // transform-origin: left top 确保放大后向右下方延伸，滚动条正常工作
+        img.style.transform = 'scale(' + zoomLevel + ')';
+        img.style.transformOrigin = 'left top';
+        img.style.maxWidth = '100%';
+        img.style.width = '';
+        document.getElementById('zoom-level').textContent = Math.round(zoomLevel * 100) + '%';
+        wrapper.classList.remove('zoomed-in', 'zoomed-fit');
+        if (zoomLevel > 1.05) {
+            wrapper.classList.add('zoomed-in');
+            // 用 padding 撑开滚动区域，让 overflow 能感知到放大后的内容
+            var extraW = Math.round(img.clientWidth * (zoomLevel - 1));
+            wrapper.style.paddingRight = extraW + 'px';
+        } else {
+            wrapper.classList.add('zoomed-fit');
+            wrapper.style.paddingRight = '20px';
+        }
+    }
+
+    function zoomIn() { zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP); updateZoom(); }
+    function zoomOut() { zoomLevel = Math.max(ZOOM_MIN, zoomLevel - ZOOM_STEP); updateZoom(); }
+    function zoomFit() {
+        var img = document.getElementById('pdf-viewer-img');
+        if (!img || !img.naturalWidth) { zoomLevel = 1.0; updateZoom(); return; }
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        var wrapperW = wrapper.clientWidth - 40;
+        zoomLevel = Math.max(0.25, Math.min(wrapperW / img.naturalWidth, ZOOM_MAX));
+        updateZoom();
+    }
+    function zoomReset() { zoomLevel = 1.0; updateZoom(); }
+    // 暴露给 renderPage 使用
+    window.__zoomReset = zoomReset;
+
+    var btnZoomIn = document.getElementById('zoom-in');
+    var btnZoomOut = document.getElementById('zoom-out');
+    var btnZoomFit = document.getElementById('zoom-fit');
+    var btnZoomReset = document.getElementById('zoom-reset');
+    if (btnZoomIn) btnZoomIn.addEventListener('click', zoomIn);
+    if (btnZoomOut) btnZoomOut.addEventListener('click', zoomOut);
+    if (btnZoomFit) btnZoomFit.addEventListener('click', zoomFit);
+    if (btnZoomReset) btnZoomReset.addEventListener('click', zoomReset);
+
+    // 鼠标滚轮缩放
+    var viewerWrapper = document.getElementById('pdf-viewer-wrapper');
+    if (viewerWrapper) {
+        viewerWrapper.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            if (e.deltaY < 0) zoomIn();
+            else zoomOut();
+        }, { passive: false });
+    }
+
+    // 拖拽平移（放大后按住左键拖动）
+    var isDragging = false, dragStartX = 0, dragStartY = 0, scrollStartX = 0, scrollStartY = 0;
+    if (viewerWrapper) {
+        viewerWrapper.addEventListener('mousedown', function(e) {
+            // 只在放大状态下启用拖拽
+            if (zoomLevel <= 1.05) return;
+            isDragging = true;
+            dragStartX = e.clientX; dragStartY = e.clientY;
+            scrollStartX = viewerWrapper.scrollLeft; scrollStartY = viewerWrapper.scrollTop;
+            viewerWrapper.classList.add('dragging');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            viewerWrapper.scrollLeft = scrollStartX - (e.clientX - dragStartX);
+            viewerWrapper.scrollTop = scrollStartY - (e.clientY - dragStartY);
+        });
+        document.addEventListener('mouseup', function() {
+            if (isDragging) { isDragging = false; viewerWrapper.classList.remove('dragging'); }
+        });
+    }
+
+    // 双击切换 100% ↔ 适应宽度
+    if (viewerWrapper) {
+        viewerWrapper.addEventListener('dblclick', function() {
+            if (Math.abs(zoomLevel - 1.0) < 0.01) zoomFit();
+            else zoomReset();
+        });
+    }
+    
     const backBtn = document.getElementById('back-to-list');
     if (backBtn) backBtn.addEventListener('click', () => showPage('documents'));
     
@@ -573,6 +665,7 @@ function showPage(pageName) {
         case 'groups': loadGroups(); break;
         case 'permissions': loadPermissionTargets(); break;
         case 'audit-logs': loadAuditLogs(); break;
+        case 'change-history': loadChangeHistory(); break;
     }
 }
 
@@ -602,10 +695,89 @@ async function loadDocuments() {
             const sortOrder = document.getElementById('sort-order')?.value || 'asc';
             renderFileList(foldersData.folders, docsData.documents, sortBy, sortOrder);
             updateBreadcrumb();
+            // 更新目录说明
+            updateFolderDescription(foldersData.folders);
         }
     } catch (error) {
         console.error('加载文档失败:', error);
     }
+}
+
+// 目录说明显示和编辑
+function updateFolderDescription() {
+    var bar = document.getElementById('folder-description-bar');
+    var textEl = document.getElementById('folder-description-text');
+    if (!bar || !textEl) return;
+    
+    // 从 tree 数据中获取当前目录的 description
+    var desc = '';
+    if (folderTreeData) {
+        var folderMap = {};
+        function collectFolders(nodes) {
+            nodes.forEach(function(n) {
+                folderMap[n.id] = n;
+                if (n.children) collectFolders(n.children);
+            });
+        }
+        collectFolders(folderTreeData);
+        if (folderMap[currentFolderId]) {
+            desc = folderMap[currentFolderId].description || '';
+        }
+    }
+    currentFolderDescription = desc;
+    
+    // admin 用户始终显示（即使没有说明，方便添加）
+    var isAdmin = false;
+    try { isAdmin = (currentUser && currentUser.role === 'admin'); } catch(e) {}
+    
+    if (desc) {
+        textEl.textContent = desc;
+        bar.style.display = 'flex';
+    } else if (isAdmin && currentFolderId !== 1) {
+        textEl.innerHTML = '<span style="color:#aaa;font-style:italic;">暂无说明，点击右侧添加</span>';
+        bar.style.display = 'flex';
+    } else {
+        textEl.textContent = '';
+        bar.style.display = 'none';
+    }
+}
+
+function editFolderDescription() {
+    var current = currentFolderDescription || '';
+    var newDesc = prompt('编辑目录说明：', current);
+    if (newDesc === null) return; // 用户点取消
+    
+    fetch(API_BASE + '/folders/' + currentFolderId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ description: newDesc })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.message) {
+            // 更新本地树数据中的 description
+            if (folderTreeData) {
+                function updateDesc(nodes) {
+                    for (var i = 0; i < nodes.length; i++) {
+                        if (nodes[i].id == currentFolderId) {
+                            nodes[i].description = newDesc;
+                            return true;
+                        }
+                        if (nodes[i].children && updateDesc(nodes[i].children)) return true;
+                    }
+                    return false;
+                }
+                updateDesc(folderTreeData);
+            }
+            currentFolderDescription = newDesc;
+            updateFolderDescription();
+            renderFolderTree(folderTreeData);
+        } else {
+            alert(data.detail || '更新失败');
+        }
+    })
+    .catch(function(e) { alert('更新失败: ' + e.message); });
 }
 
 function renderFileList(folders, documents, sortBy, sortOrder) {
@@ -668,6 +840,9 @@ function renderFileList(folders, documents, sortBy, sortOrder) {
             html += '<td class="file-name" onclick="navigateToFolder(' + folder.id + ', \'' + escapeHtml(folder.name).replace(/'/g, "\\'") + '\')">';
             html += escapeHtml(folder.name);
             html += ' <span class="file-count">(' + folder.subfolder_count + ' 个目录, ' + folder.doc_count + ' 个文件)</span>';
+            if (folder.description) {
+                html += '<div class="folder-desc-inline" title="' + escapeHtml(folder.description) + '">' + escapeHtml(folder.description) + '</div>';
+            }
             html += '</td>';
             html += '<td class="col-size">' + formatFileSize(folder.total_size) + '</td>';
             html += '<td class="col-creator">' + escapeHtml(folder.creator_name || '-') + '</td>';
@@ -1192,6 +1367,14 @@ async function renderPage(pageNum) {
     
     const img = document.getElementById('pdf-viewer-img');
     if (img) {
+        // 重置缩放和滚动位置
+        img.style.transform = '';
+        img.style.width = '';
+        img.style.maxWidth = '100%';
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        if (wrapper) { wrapper.scrollTop = 0; wrapper.scrollLeft = 0; wrapper.style.paddingRight = '20px'; }
+        if (window.__zoomReset) window.__zoomReset();
+        
         // 服务端渲染：直接加载指定页的图片（带水印）
         img.src = `${API_BASE}/documents/${currentDocument.id}/view?page=${pageNum}&t=${Date.now()}`;
         img.onload = function() {
@@ -1931,6 +2114,98 @@ function renderAuditLogs(logs, total, page, limit) {
         <span>第 ${page} 页 / 共 ${totalPages} 页</span>
         <button onclick="loadAuditLogs(${page + 1})" ${page >= totalPages ? "disabled" : ""}>下一页</button>
     `;
+}
+
+// ==================== 变更动态 ====================
+
+const ACTION_LABELS = {
+    'upload': '上传了',
+    'delete': '删除了',
+    'move': '移动了',
+    'create_folder': '创建了目录',
+    'delete_folder': '删除了目录'
+};
+const ACTION_ICONS = {
+    'upload': '📄',
+    'delete': '🗑️',
+    'move': '📁',
+    'create_folder': '📁',
+    'delete_folder': '❌'
+};
+
+async function loadChangeHistory(page = 1) {
+    const action = document.getElementById('change-action-filter')?.value || '';
+    const folderPath = document.getElementById('change-folder-filter')?.value || '';
+    
+    let url = `${API_BASE}/change-history?page=${page}&limit=50`;
+    if (action) url += `&action=${action}`;
+    if (folderPath) url += `&folder_path=${encodeURIComponent(folderPath)}`;
+    
+    try {
+        const resp = await fetch(url, { credentials: 'include' });
+        const data = await resp.json();
+        if (resp.ok) {
+            renderChangeHistory(data.logs, data.total, data.page, data.limit);
+        }
+    } catch (e) {
+        console.error('加载变更历史失败:', e);
+    }
+}
+
+function renderChangeHistory(logs, total, page, limit) {
+    const listEl = document.getElementById('change-history-list');
+    const paginationEl = document.getElementById('change-history-pagination');
+    
+    if (!logs || logs.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:40px;color:#95a5a6;">暂无变更记录</div>';
+        paginationEl.innerHTML = '';
+        return;
+    }
+    
+    // 按日期分组
+    var html = '';
+    var currentDay = '';
+    logs.forEach(function(log) {
+        var day = (log.created_at || '').split(' ')[0] || '未知日期';
+        var time = (log.created_at || '').split(' ')[1] || '';
+        var today = new Date().toISOString().split('T')[0];
+        var yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        
+        if (day !== currentDay) {
+            currentDay = day;
+            var dayLabel = day;
+            if (day === today) dayLabel = '今天';
+            else if (day === yesterday) dayLabel = '昨天';
+            html += '<div class="change-day-header">━━━ ' + dayLabel + ' ━━━</div>';
+        }
+        
+        var icon = ACTION_ICONS[log.action] || '📝';
+        var label = ACTION_LABELS[log.action] || log.action;
+        var targetType = log.target_type === 'folder' ? '目录' : '';
+        
+        html += '<div class="change-item">';
+        html += '<span class="change-icon">' + icon + '</span>';
+        html += '<div class="change-content">';
+        html += '<span class="change-user">' + escapeHtml(log.username || '未知') + '</span> ';
+        html += label + ' ';
+        if (targetType) html += targetType + ' ';
+        html += '<span class="change-target">"' + escapeHtml(log.target_name) + '"</span>';
+        if (log.folder_path) {
+            html += ' <span class="change-folder">→ ' + escapeHtml(log.folder_path) + '</span>';
+        }
+        html += '</div>';
+        html += '<span class="change-time">' + time + '</span>';
+        html += '</div>';
+    });
+    
+    listEl.innerHTML = html;
+    
+    // 分页
+    var totalPages = Math.ceil(total / limit);
+    paginationEl.innerHTML = 
+        '<button onclick="loadChangeHistory(' + (page - 1) + ')" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>' +
+        '<span>第 ' + page + ' 页 / 共 ' + totalPages + ' 页</span>' +
+        '<button onclick="loadChangeHistory(' + (page + 1) + ')" ' + (page >= totalPages ? 'disabled' : '') + '>下一页</button>';
 }
 
 // ==================== 页面离开事件 ====================
