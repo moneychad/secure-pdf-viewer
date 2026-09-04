@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## v7.4 - 2026-09-04
+
+### 新增功能
+- **PDF缩放**: 支持滚轮缩放、放大/缩小按钮、适应宽度、1:1重置，放大后可四向拖拽平移，双击切换适应宽度/100%
+- **目录说明**: folders表新增description字段，文件列表目录名下方显示说明，admin可编辑（无说明时显示"暂无说明，点击右侧添加"）
+- **变更动态**: 新增用户可见的变更历史页面，按日期分组时间线展示，支持按操作类型和目录路径筛选
+- **变更记录**: 上传/删除/移动/创建目录/删除目录操作自动记录到change_history表
+
+### 修复
+- 修复SQL COALESCE引号截断bug（description字段查询语法错误导致500）
+- 修复PDF拖拽方向问题（transform-origin: left top + padding撑开滚动区域）
+- 修复目录说明编辑（prompt弹窗 + 本地树数据同步更新）
+
+### 技术
+- 新增change_history表和GET /api/change-history接口
+- PUT /api/folders/{id}支持同时更新name和description
+- 前端版本号 v6.2 -> v7.4
+
+---
+
 ## v1.2.0 - 2026-08-26
 
 ### 新增功能
