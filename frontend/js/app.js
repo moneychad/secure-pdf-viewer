@@ -413,9 +413,10 @@ function bindEvents() {
         if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
         else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
 
-        // 工具栏：常驻显示
+        // 工具栏：隐藏，鼠标悬浮1秒后显示
         if (toolbar) {
             toolbar.classList.add('fullscreen-toolbar');
+            viewerBody.addEventListener('mousemove', fsMouseMove);
         }
 
         // 提示：1秒消失
@@ -425,12 +426,40 @@ function bindEvents() {
         }
     }
 
-    // fsMouseMove removed — toolbar always visible in fullscreen
+    var fsHoverTimer = null;
+    var fsShowTimer = null;
+
+    function fsMouseMove(e) {
+        var viewerBody = document.querySelector('.viewer-body');
+        if (!viewerBody || !document.fullscreenElement) return;
+        var rect = viewerBody.getBoundingClientRect();
+        var yRatio = (e.clientY - rect.top) / rect.height;
+        if (yRatio > 0.7) {
+            if (!fsHoverTimer) {
+                fsHoverTimer = setTimeout(function() {
+                    var tb = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
+                    if (tb) tb.classList.add('show');
+                    clearTimeout(fsShowTimer);
+                    fsShowTimer = setTimeout(function() {
+                        if (tb) tb.classList.remove('show');
+                    }, 3000);
+                    fsHoverTimer = null;
+                }, 1000);
+            }
+        } else {
+            if (fsHoverTimer) { clearTimeout(fsHoverTimer); fsHoverTimer = null; }
+        }
+    }
 
     function exitFullscreenCleanup() {
+        var viewerBody = document.querySelector('.viewer-body');
+        if (viewerBody) viewerBody.removeEventListener('mousemove', fsMouseMove);
+        clearTimeout(fsHoverTimer); fsHoverTimer = null;
+        clearTimeout(fsShowTimer); fsShowTimer = null;
+
         var toolbar = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
         if (toolbar) {
-            toolbar.classList.remove('fullscreen-toolbar');
+            toolbar.classList.remove('fullscreen-toolbar', 'show');
             var vc = document.querySelector('.viewer-container');
             if (vc) {
                 var nav = vc.querySelector('.viewer-nav');

@@ -2072,14 +2072,24 @@ body:not(.is-admin) .admin-only {
     max-height: 100vh;
     border-radius: 0;
 }
-/* toolbar: always visible in fullscreen */
+/* toolbar: auto-hide in fullscreen, hover to show */
 .zoom-toolbar.fullscreen-toolbar {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
     background: rgba(0,0,0,0.8);
-    padding: 10px 16px;
+    padding: 10px 20px;
     justify-content: center;
-    flex-shrink: 0;
-    border-radius: 6px;
-    margin-top: 8px;
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+.zoom-toolbar.fullscreen-toolbar.show {
+    opacity: 1;
+    pointer-events: auto;
 }
 .zoom-toolbar.fullscreen-toolbar .zoom-btn,
 .zoom-toolbar.fullscreen-toolbar #zoom-level {
