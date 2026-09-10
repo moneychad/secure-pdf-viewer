@@ -134,36 +134,43 @@ body {
 }
 
 /* 主页面 */
-header {
-    background: white;
-    padding: 14px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.header-left h1 {
-    font-size: 18px;
-    color: #333;
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 15px;
+#main-page {
+    height: 100vh;
+    overflow: hidden;
 }
 
 .container {
     display: flex;
-    min-height: calc(100vh - 60px);
+    height: 100vh;
+    overflow: hidden;
 }
 
 /* 侧边栏 */
 .sidebar {
     width: 250px;
+    min-width: 250px;
     background: #2c3e50;
-    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.sidebar-header h1 {
+    font-size: 17px;
+    color: #ecf0f1;
+    white-space: nowrap;
+}
+.sidebar nav {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .nav-item {
@@ -186,7 +193,8 @@ header {
 .content {
     flex: 1;
     padding: 30px;
-    overflow-x: auto;
+    overflow: auto;
+    height: 100vh;
 }
 
 .content-page {
@@ -1947,11 +1955,6 @@ body:not(.is-admin) .admin-only {
 }
 
 /* ==================== v7.19: 布局优化 + 全屏 ==================== */
-/* header: remove space-between since header-right is gone */
-header {
-    justify-content: flex-start !important;
-}
-
 /* sidebar user info at bottom */
 .sidebar {
     display: flex;
@@ -2029,14 +2032,15 @@ header {
 /* toolbar auto-hide in fullscreen: show on hover */
 .zoom-toolbar.fullscreen-toolbar {
     position: absolute;
-    top: 0; left: 0; right: 0;
+    bottom: 0; left: 0; right: 0;
+    top: auto;
     z-index: 50;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0,0,0,0.7);
     opacity: 0;
     transition: opacity 0.3s;
-    padding: 8px 16px;
+    padding: 10px 16px;
+    justify-content: center;
 }
-.zoom-toolbar.fullscreen-toolbar:hover,
 .zoom-toolbar.fullscreen-toolbar.show {
     opacity: 1;
 }

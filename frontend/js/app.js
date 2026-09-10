@@ -391,50 +391,83 @@ function bindEvents() {
     var fsBtn = document.getElementById('toggle-fullscreen');
     var fsHint = document.getElementById('fullscreen-hint');
     var fsToolbarTimer = null;
+    var fsHoverTimer = null;
 
     function enterFullscreen() {
         var wrapper = document.getElementById('pdf-viewer-wrapper');
         if (!wrapper) return;
-        // 重新排列：把 zoom-toolbar 移到 wrapper 内部（全屏时需要一起显示）
+
+        // 多页时自动显示缩略图
+        var tp = document.getElementById('thumbnail-panel');
+        if (tp && totalPages > 1) {
+            tp.classList.remove('hidden');
+            if (window.__loadThumbnails) window.__loadThumbnails();
+        }
+
+        // 移动 zoom-toolbar 到 wrapper 内部
         var toolbar = wrapper.parentElement?.querySelector('.zoom-toolbar');
         if (toolbar && !wrapper.contains(toolbar)) {
             wrapper.insertBefore(toolbar, wrapper.firstChild);
         }
+
+        // 进入全屏
+        if (wrapper.requestFullscreen) wrapper.requestFullscreen();
+        else if (wrapper.webkitRequestFullscreen) wrapper.webkitRequestFullscreen();
+
+        // 工具栏：底部显示，3秒后自动隐藏
         if (toolbar) {
             toolbar.classList.add('fullscreen-toolbar', 'show');
-            // 3秒后自动隐藏，鼠标移入再显示
             clearTimeout(fsToolbarTimer);
             fsToolbarTimer = setTimeout(function() {
                 toolbar.classList.remove('show');
             }, 3000);
-            toolbar.addEventListener('mouseenter', function() {
-                clearTimeout(fsToolbarTimer);
-                toolbar.classList.add('show');
-            });
-            toolbar.addEventListener('mouseleave', function() {
-                fsToolbarTimer = setTimeout(function() {
-                    toolbar.classList.remove('show');
-                }, 1500);
-            });
+            wrapper.addEventListener('mousemove', fsMouseMove);
         }
-        var el = wrapper;
-        if (el.requestFullscreen) el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-        // 显示提示
+
+        // 提示：1秒消失
         if (fsHint) {
             fsHint.classList.remove('hidden');
-            setTimeout(function() { fsHint.classList.add('hidden'); }, 3500);
+            setTimeout(function() { fsHint.classList.add('hidden'); }, 1000);
+        }
+    }
+
+    function fsMouseMove(e) {
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        if (!wrapper || !document.fullscreenElement) return;
+        var rect = wrapper.getBoundingClientRect();
+        var yRatio = (e.clientY - rect.top) / rect.height;
+        if (yRatio > 0.5) {
+            // 鼠标在下半部，悬浮3秒后显示toolbar
+            if (!fsHoverTimer) {
+                fsHoverTimer = setTimeout(function() {
+                    var tb = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
+                    if (tb) tb.classList.add('show');
+                    clearTimeout(fsToolbarTimer);
+                    fsToolbarTimer = setTimeout(function() {
+                        if (tb) tb.classList.remove('show');
+                    }, 3000);
+                    fsHoverTimer = null;
+                }, 3000);
+            }
+        } else {
+            if (fsHoverTimer) { clearTimeout(fsHoverTimer); fsHoverTimer = null; }
         }
     }
 
     function exitFullscreenCleanup() {
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        if (wrapper) wrapper.removeEventListener('mousemove', fsMouseMove);
+        clearTimeout(fsHoverTimer); fsHoverTimer = null;
+        clearTimeout(fsToolbarTimer);
+
         var toolbar = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
         if (toolbar) {
             toolbar.classList.remove('fullscreen-toolbar', 'show');
-            // 把 toolbar 移回 viewer-container
             var vc = document.querySelector('.viewer-container');
-            if (vc && vc.querySelector('.viewer-nav')) {
-                vc.insertBefore(toolbar, vc.querySelector('.viewer-nav').nextSibling);
+            if (vc) {
+                var nav = vc.querySelector('.viewer-nav');
+                if (nav) vc.insertBefore(toolbar, nav.nextSibling);
+                else vc.appendChild(toolbar);
             }
         }
         if (fsHint) fsHint.classList.add('hidden');
