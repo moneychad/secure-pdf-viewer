@@ -2038,20 +2038,25 @@ body:not(.is-admin) .admin-only {
 }
 .fullscreen-hint.hidden { display: none !important; }
 
-/* fullscreen mode styles */
-.pdf-viewer-wrapper:fullscreen,
-.pdf-viewer-wrapper:-webkit-full-screen {
+/* fullscreen mode styles — target viewer-body (contains thumbnails + PDF) */
+.viewer-body:fullscreen,
+.viewer-body:-webkit-full-screen {
     background: #1a1a2e;
     padding: 10px;
-    max-height: none;
     display: flex;
-    flex-direction: column;
     height: 100vh;
     overflow: hidden;
 }
-.pdf-viewer-wrapper:fullscreen .viewer-toolbar-fs,
-.pdf-viewer-wrapper:-webkit-full-screen .viewer-toolbar-fs {
-    display: flex;
+.viewer-body:fullscreen .pdf-viewer-wrapper,
+.viewer-body:-webkit-full-screen .pdf-viewer-wrapper {
+    max-height: none;
+    flex: 1;
+    min-width: 0;
+}
+.viewer-body:fullscreen .thumbnail-panel,
+.viewer-body:-webkit-full-screen .thumbnail-panel {
+    max-height: 100vh;
+    border-radius: 0;
 }
 /* toolbar auto-hide in fullscreen: show on hover */
 .zoom-toolbar.fullscreen-toolbar {

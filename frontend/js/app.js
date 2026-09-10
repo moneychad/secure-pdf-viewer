@@ -394,8 +394,8 @@ function bindEvents() {
     var fsHoverTimer = null;
 
     function enterFullscreen() {
-        var wrapper = document.getElementById('pdf-viewer-wrapper');
-        if (!wrapper) return;
+        var viewerBody = document.querySelector('.viewer-body');
+        if (!viewerBody) return;
 
         // 多页时自动显示缩略图
         var tp = document.getElementById('thumbnail-panel');
@@ -404,15 +404,16 @@ function bindEvents() {
             if (window.__loadThumbnails) window.__loadThumbnails();
         }
 
-        // 移动 zoom-toolbar 到 wrapper 内部
-        var toolbar = wrapper.parentElement?.querySelector('.zoom-toolbar');
-        if (toolbar && !wrapper.contains(toolbar)) {
-            wrapper.insertBefore(toolbar, wrapper.firstChild);
+        // 移动 zoom-toolbar 到 viewerBody 内部
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        var toolbar = viewerBody.parentElement?.querySelector('.zoom-toolbar');
+        if (toolbar && !viewerBody.contains(toolbar)) {
+            viewerBody.insertBefore(toolbar, viewerBody.firstChild);
         }
 
-        // 进入全屏
-        if (wrapper.requestFullscreen) wrapper.requestFullscreen();
-        else if (wrapper.webkitRequestFullscreen) wrapper.webkitRequestFullscreen();
+        // 进入全屏（viewerBody 包含缩略图+PDF）
+        if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
+        else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
 
         // 工具栏：底部显示，3秒后自动隐藏
         if (toolbar) {
@@ -421,7 +422,7 @@ function bindEvents() {
             fsToolbarTimer = setTimeout(function() {
                 toolbar.classList.remove('show');
             }, 3000);
-            wrapper.addEventListener('mousemove', fsMouseMove);
+            viewerBody.addEventListener('mousemove', fsMouseMove);
         }
 
         // 提示：1秒消失
@@ -432,12 +433,11 @@ function bindEvents() {
     }
 
     function fsMouseMove(e) {
-        var wrapper = document.getElementById('pdf-viewer-wrapper');
-        if (!wrapper || !document.fullscreenElement) return;
-        var rect = wrapper.getBoundingClientRect();
+        var viewerBody = document.querySelector('.viewer-body');
+        if (!viewerBody || !document.fullscreenElement) return;
+        var rect = viewerBody.getBoundingClientRect();
         var yRatio = (e.clientY - rect.top) / rect.height;
         if (yRatio > 0.5) {
-            // 鼠标在下半部，悬浮3秒后显示toolbar
             if (!fsHoverTimer) {
                 fsHoverTimer = setTimeout(function() {
                     var tb = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
@@ -455,8 +455,8 @@ function bindEvents() {
     }
 
     function exitFullscreenCleanup() {
-        var wrapper = document.getElementById('pdf-viewer-wrapper');
-        if (wrapper) wrapper.removeEventListener('mousemove', fsMouseMove);
+        var viewerBody = document.querySelector('.viewer-body');
+        if (viewerBody) viewerBody.removeEventListener('mousemove', fsMouseMove);
         clearTimeout(fsHoverTimer); fsHoverTimer = null;
         clearTimeout(fsToolbarTimer);
 
