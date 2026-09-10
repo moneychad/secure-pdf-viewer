@@ -295,64 +295,122 @@ async function loadPermissions() {
         var permResponse = await fetch(API_BASE + '/permissions/' + targetType + '/' + targetId, { credentials: 'include' });
         var permData = await permResponse.json();
         
-        var folderResponse = await fetch(API_BASE + '/folders?parent_id=1', { credentials: 'include' });
-        var folderData = await folderResponse.json();
+        // 获取完整目录列表（管理员权限）
+        var allFoldersResponse = await fetch(API_BASE + '/folders/all', { credentials: 'include' });
+        var allFoldersData = await allFoldersResponse.json();
         
-        if (permResponse.ok && folderResponse.ok) {
-            renderFolderPermissions(folderData.folders, permData.folder_permissions, targetType, targetId);
+        if (permResponse.ok && allFoldersResponse.ok) {
+            renderFolderPermissions(allFoldersData.folders || [], permData.folder_permissions, targetType, targetId);
             renderDocumentPermissions(permData.document_permissions, targetType, targetId);
         }
     } catch (error) {
         console.error('加载权限失败:', error);
     }
 }
-// v2: loadPermissions unchanged - path info comes from API now
 
-function renderFolderPermissions(folders, permissions, targetType, targetId) {
+function renderFolderPermissions(allFolders, permissions, targetType, targetId) {
     var container = document.getElementById('folder-permissions');
-    if (!folders || folders.length === 0) {
+    if (!allFolders || allFolders.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#666;">暂无目录</p>';
         return;
     }
     
+    // 构建权限Map
     var permMap = {};
     permissions.forEach(function(p) { permMap[p.folder_id] = p; });
     
-    var allPermFolders = permissions.slice();
-    var html = '';
+    // 构建目录树
+    var folderMap = {};
+    allFolders.forEach(function(f) {
+        folderMap[f.id] = { id: f.id, name: f.name, parent_id: f.parent_id, doc_count: f.doc_count, children: [] };
+    });
+    var roots = [];
+    allFolders.forEach(function(f) {
+        if (f.parent_id && folderMap[f.parent_id]) {
+            folderMap[f.parent_id].children.push(folderMap[f.id]);
+        } else {
+            roots.push(folderMap[f.id]);
+        }
+    });
     
-    // 已授权目录列表
-    if (allPermFolders.length > 0) {
-        html += '<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #eee;">';
-        html += '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">已授权目录</div>';
-        allPermFolders.forEach(function(p) {
-            var displayPath = p.folder_path || p.folder_name;
-            var fid = p.folder_id;
-            html += '<div class="permission-item" style="display:flex;align-items:center;">';
-            html += '<span class="folder-icon" style="margin-right:4px;">📁</span>';
-            html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(displayPath) + '">' + escapeHtml(displayPath) + '</span>';
-            html += '<span class="perm-status perm-granted" style="margin-right:8px;">已授权</span>';
-            html += '<button class="btn-action btn-delete" onclick="removeFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + fid + ')" title="移除权限">🗑️</button>';
-            html += '</div>';
-        });
+    // 排序
+    function sortNodes(nodes) {
+        nodes.sort(function(a, b) { return (a.name || '').localeCompare(b.name || '', 'zh-CN'); });
+        nodes.forEach(function(n) { sortNodes(n.children); });
+    }
+    sortNodes(roots);
+    
+    // 渲染树节点
+    function renderNode(node, depth) {
+        var isPerm = permMap.hasOwnProperty(node.id);
+        var hasChildren = node.children.length > 0;
+        var indent = depth * 20;
+        var html = '';
+        
+        html += '<div class="perm-tree-node">';
+        html += '<div class="perm-tree-row' + (isPerm ? ' perm-tree-granted' : '') + '" style="padding-left:' + indent + 'px;">';
+        
+        // 展开/折叠箭头
+        if (hasChildren) {
+            html += '<span class="perm-tree-toggle" onclick="togglePermTreeNode(this)">▶</span>';
+        } else {
+            html += '<span class="perm-tree-toggle" style="visibility:hidden;">▶</span>';
+        }
+        
+        // 复选框
+        html += '<label class="perm-tree-label">';
+        html += '<input type="checkbox" ' + (isPerm ? 'checked ' : '');
+        html += 'onchange="setFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + node.id + ', this.checked)">';
+        html += '<span class="folder-icon">📁</span>';
+        html += '<span>' + escapeHtml(node.name) + '</span>';
+        if (node.doc_count > 0) {
+            html += ' <span style="color:#999;font-size:11px;">(' + node.doc_count + ')</span>';
+        }
+        html += '</label>';
+        
+        if (isPerm) {
+            html += '<button class="btn-action btn-delete" style="margin-left:auto;" onclick="removeFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + node.id + ')" title="移除权限">🗑️</button>';
+        }
+        
         html += '</div>';
+        
+        // 子节点
+        if (hasChildren) {
+            html += '<div class="perm-tree-children" style="display:none;">';
+            node.children.forEach(function(child) {
+                html += renderNode(child, depth + 1);
+            });
+            html += '</div>';
+        }
+        
+        html += '</div>';
+        return html;
     }
     
-    // 根目录列表（全部未勾选，用于添加新权限）
-    html += '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:6px;">所有根级目录（勾选添加权限）</div>';
-    html += folders.map(function(folder) {
-        return '<div class="permission-item">' +
-            '<label>' +
-                '<input type="checkbox"' +
-                ' onchange="setFolderPermission(\'' + targetType + '\', ' + targetId + ', ' + folder.id + ', this.checked)">' +
-                '<span class="folder-icon">📁</span>' +
-                '<span>' + escapeHtml(folder.name) + ' (' + folder.doc_count + ' 个文件)</span>' +
-            '</label>' +
-            '<span class="perm-status perm-denied">未授权</span>' +
-        '</div>';
-    }).join('');
+    var html = '';
+    // 统计
+    var permCount = permissions.length;
+    html += '<div style="margin-bottom:10px;font-size:13px;color:#555;">已授权 <strong>' + permCount + '</strong> 个目录，共 <strong>' + allFolders.length + '</strong> 个目录</div>';
+    
+    // 渲染所有根节点
+    roots.forEach(function(root) {
+        html += renderNode(root, 0);
+    });
     
     container.innerHTML = html;
+}
+
+function togglePermTreeNode(toggleEl) {
+    var nodeRow = toggleEl.closest('.perm-tree-node');
+    var children = nodeRow.querySelector('.perm-tree-children');
+    if (!children) return;
+    if (children.style.display === 'none') {
+        children.style.display = 'block';
+        toggleEl.textContent = '▼';
+    } else {
+        children.style.display = 'none';
+        toggleEl.textContent = '▶';
+    }
 }
 
 function renderDocumentPermissions(permissions, targetType, targetId) {
@@ -461,6 +519,101 @@ async function removeFolderPermission(targetType, targetId, folderId) {
         } else {
             var data = await response.json();
             alert(data.detail || '移除失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// ==================== 复制权限 ====================
+
+function showCopyPermissionModal() {
+    var targetType = document.getElementById('perm-target-type').value;
+    var targetSelect = document.getElementById('perm-target-id');
+    var targetId = targetSelect.value;
+    if (!targetId) {
+        alert('请先选择一个源用户或用户组');
+        return;
+    }
+    var targetName = targetSelect.options[targetSelect.selectedIndex].textContent;
+    var typeLabel = targetType === 'user' ? '用户' : '用户组';
+
+    document.getElementById('copy-perm-source-display').textContent = typeLabel + ': ' + targetName;
+    document.getElementById('copy-perm-source-display').setAttribute('data-type', targetType);
+    document.getElementById('copy-perm-source-display').setAttribute('data-id', targetId);
+
+    // 默认目标类型与源不同
+    var oppositeType = targetType === 'user' ? 'group' : 'user';
+    document.getElementById('copy-perm-target-type').value = oppositeType;
+    loadCopyPermTargets();
+
+    document.getElementById('copy-perm-confirm').style.display = 'none';
+    document.getElementById('copy-permission-modal').classList.remove('hidden');
+}
+
+async function loadCopyPermTargets() {
+    var targetType = document.getElementById('copy-perm-target-type').value;
+    var select = document.getElementById('copy-perm-target-id');
+    try {
+        if (targetType === 'user') {
+            var response = await fetch(API_BASE + '/admin/users', { credentials: 'include' });
+            var data = await response.json();
+            if (response.ok) {
+                select.innerHTML = data.users.map(function(u) {
+                    return '<option value="' + u.id + '">' + escapeHtml(u.username) + (u.group_name ? ' (' + u.group_name + ')' : '') + '</option>';
+                }).join('');
+            }
+        } else {
+            var response = await fetch(API_BASE + '/groups', { credentials: 'include' });
+            var data = await response.json();
+            if (response.ok) {
+                select.innerHTML = data.groups.map(function(g) {
+                    return '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>';
+                }).join('');
+            }
+        }
+        // 显示覆盖提示
+        document.getElementById('copy-perm-confirm').style.display = 'block';
+    } catch (error) {
+        console.error('加载目标失败:', error);
+    }
+}
+
+async function executeCopyPermissions() {
+    var sourceEl = document.getElementById('copy-perm-source-display');
+    var sourceType = sourceEl.getAttribute('data-type');
+    var sourceId = parseInt(sourceEl.getAttribute('data-id'));
+    var targetType = document.getElementById('copy-perm-target-type').value;
+    var targetId = parseInt(document.getElementById('copy-perm-target-id').value);
+
+    if (!targetId) {
+        alert('请选择目标');
+        return;
+    }
+
+    if (sourceType === targetType && sourceId === targetId) {
+        alert('源和目标不能相同');
+        return;
+    }
+
+    try {
+        var response = await fetch(API_BASE + '/permissions/copy', {
+            credentials: 'include',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                source_type: sourceType,
+                source_id: sourceId,
+                target_type: targetType,
+                target_id: targetId
+            })
+        });
+        var data = await response.json();
+        if (response.ok) {
+            alert(data.message);
+            closeModal('copy-permission-modal');
+        } else {
+            alert(data.detail || '复制失败');
         }
     } catch (error) {
         alert('网络错误，请重试');

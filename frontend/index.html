@@ -4,16 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>安全文档共享平台</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=7.17">
 </head>
 <body>
     <div id="app">
         <!-- 登录页面 -->
         <div id="login-page" class="page">
             <div class="login-container">
-                <div class="login-logo-area">
-                    <img src="/assets/logo_login.png" alt="AUV-X Technologies" class="login-page-logo">
-                </div>
+                <h1 style="text-align:center;margin-bottom:24px;color:#333;font-size:22px">🔒 安全文档共享平台</h1>
                 <form id="login-form">
                     <div class="form-group">
                         <label>用户名</label>
@@ -33,9 +31,8 @@
         <div id="main-page" class="page hidden">
             <header>
                 <div class="header-left">
-                    <div class="header-brand">
-                        <img src="/assets/logo_header.png" alt="AUV-X" class="header-logo-img">
-                    </div>
+                    <button id="mobile-menu-btn" class="mobile-menu-btn" onclick="toggleMobileSidebar()">☰</button>
+                    <h1 style="font-size:18px;color:#333">🔒 安全文档共享平台</h1>
                 </div>
                 <div class="header-right">
                     <span id="current-user"></span>
@@ -44,6 +41,7 @@
             </header>
 
             <div class="container">
+                <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
                 <!-- 侧边栏 -->
                 <aside class="sidebar" id="sidebar">
                     <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
@@ -59,9 +57,10 @@
                         <a href="#" class="nav-item admin-only" data-page="logs">📊 访问日志</a>
                         <a href="#" class="nav-item admin-only" data-page="fingerprints">🖥️ 设备指纹</a>
                         <a href="#" class="nav-item admin-only" data-page="audit-logs">📋 审计日志</a>
+                        <a href="#" class="nav-item admin-only" data-page="change-history">📝 变更动态</a>
                         <a href="#" class="nav-item admin-only" data-page="users">👥 用户管理</a>
                         <a href="#" class="nav-item admin-only" data-page="groups">👪 用户组管理</a>                        <a href="#" class="nav-item admin-only" data-page="permissions">🔐 权限配置</a>
-                        <a href="#" class="nav-item" data-page="password">🔑 修改密码</a>
+                        <a href="#" class="nav-item admin-only" data-page="password">🔑 修改密码</a>
                     </nav>
                 </aside>
 
@@ -110,6 +109,12 @@
                             <button class="btn-primary" onclick="showBatchPermissionModal()">🔐 批量权限</button>
                         </div>
                         
+                        <!-- 目录说明 -->
+                        <div id="folder-description-bar" class="folder-description-bar" style="display:none;">
+                            <span id="folder-description-text"></span>
+                            <button id="folder-desc-edit-btn" class="btn-desc-edit admin-only" onclick="editFolderDescription()" title="编辑目录说明">✏️ 编辑说明</button>
+                        </div>
+                        
                         <!-- 目录和文档列表 -->
                         <div class="file-list">
                             <table id="file-table">
@@ -135,16 +140,37 @@
                         <div class="viewer-header">
                             <button id="back-to-list" class="btn-secondary">← 返回列表</button>
                             <span id="viewer-doc-name"></span>
-                            <span id="viewer-page-info">第 1 页</span>
                         </div>
                         <div class="viewer-container">
                             <div class="viewer-nav">
+                                <button id="first-page" class="btn-nav" title="首页">⏮ 首页</button>
                                 <button id="prev-page" class="btn-nav">◀ 上一页</button>
+                                <span id="viewer-page-info" class="page-info-inline">第 1 页</span>
+                                <input type="number" id="page-jump-input" class="page-jump-input" min="1" placeholder="页码" title="输入页码">
+                                <button id="page-jump-btn" class="btn-nav" title="跳转到指定页">转到</button>
                                 <button id="next-page" class="btn-nav">下一页 ▶</button>
+                                <button id="last-page" class="btn-nav" title="尾页">尾页 ⏭</button>
                             </div>
-                            <div class="pdf-viewer-wrapper">
-                                <img id="pdf-viewer-img" style="max-width:100%;height:auto;display:block;margin:0 auto;" alt="文档内容">
-                                <div id="watermark-overlay"></div>
+                            <div class="zoom-toolbar">
+                                <button id="zoom-out" class="zoom-btn" title="缩小">🔍−</button>
+                                <span id="zoom-level">100%</span>
+                                <button id="zoom-in" class="zoom-btn" title="放大">🔍+</button>
+                                <button id="zoom-fit" class="zoom-btn" title="适应宽度">适应宽度</button>
+                                <button id="zoom-reset" class="zoom-btn" title="重置">1:1</button>
+                                <button id="toggle-thumbnails" class="zoom-btn" title="缩略图">📑 缩略图</button>
+                            </div>
+                            <div class="viewer-body">
+                                <div id="thumbnail-panel" class="thumbnail-panel hidden">
+                                    <div class="thumbnail-header">
+                                        <span>缩略图</span>
+                                        <button id="close-thumbnails" class="thumbnail-close-btn" title="收起">✕</button>
+                                    </div>
+                                    <div id="thumbnail-list" class="thumbnail-list"></div>
+                                </div>
+                                <div class="pdf-viewer-wrapper" id="pdf-viewer-wrapper">
+                                    <img id="pdf-viewer-img" draggable="false" alt="文档内容">
+                                    <div id="watermark-overlay"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -328,6 +354,7 @@
                                 <select id="perm-target-id"></select>
                             </div>
                             <button class="btn-primary" onclick="loadPermissions()">加载权限</button>
+                            <button class="btn-secondary" onclick="showCopyPermissionModal()">📋 复制权限</button>
                         </div>
                         
                         <div class="permission-section">
@@ -340,6 +367,24 @@
                             <h3>文件权限</h3>
                             <div class="permission-list" id="document-permissions"></div>
                         </div>
+                    </div>
+
+                    <!-- 变更动态 -->
+                    <div id="page-change-history" class="content-page">
+                        <h2>📝 变更动态</h2>
+                        <div class="change-history-filters">
+                            <select id="change-action-filter" onchange="loadChangeHistory(1)">
+                                <option value="">全部操作</option>
+                                <option value="upload">上传</option>
+                                <option value="delete">删除</option>
+                                <option value="move">移动</option>
+                                <option value="create_folder">创建目录</option>
+                                <option value="delete_folder">删除目录</option>
+                            </select>
+                            <input type="text" id="change-folder-filter" placeholder="按目录路径筛选..." onkeyup="loadChangeHistory(1)">
+                        </div>
+                        <div id="change-history-list" class="change-history-list"></div>
+                        <div id="change-history-pagination" class="pagination"></div>
                     </div>
 
                     <!-- 修改密码 -->
@@ -466,6 +511,34 @@
         </div>
     </div>
 
+    <!-- 复制权限弹窗 -->
+    <div id="copy-permission-modal" class="modal hidden">
+        <div class="modal-content" style="min-width: 500px;">
+            <h3>📋 复制权限</h3>
+            <p style="color:#666;font-size:13px;margin-bottom:15px;">将当前选中的用户/用户组的全部权限复制到目标对象</p>
+            <div class="copy-perm-source" style="padding:10px;background:#e3f2fd;border-radius:5px;margin-bottom:15px;">
+                <strong>源：</strong><span id="copy-perm-source-display">-</span>
+            </div>
+            <div class="form-group">
+                <label>复制到（选择目标用户或用户组）</label>
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
+                    <select id="copy-perm-target-type" onchange="loadCopyPermTargets()" style="width:100px;">
+                        <option value="user">用户</option>
+                        <option value="group">用户组</option>
+                    </select>
+                    <select id="copy-perm-target-id" style="flex:1;"></select>
+                </div>
+            </div>
+            <div id="copy-perm-confirm" style="display:none;padding:10px;background:#fff3e0;border-radius:5px;margin-bottom:15px;color:#e65100;font-size:13px;">
+                ⚠️ 目标的现有权限将被覆盖
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('copy-permission-modal')">取消</button>
+                <button class="btn-primary" onclick="executeCopyPermissions()">确认复制</button>
+            </div>
+        </div>
+    </div>
+
     <div id="batch-move-modal" class="modal hidden">
         <div class="modal-content">
             <h3>批量移动到目录</h3>
@@ -481,10 +554,10 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=6.2"></script>
-    <script src="/js/groups.js?v=6.12"></script>
-    <script src="/js/extend.js?v=6.5"></script>
-    <script src="/js/permission.js?v=6.5"></script>
+    <script src="/js/app.js?v=7.17"></script>
+    <script src="/js/groups.js?v=7.17"></script>
+    <script src="/js/extend.js?v=7.17"></script>
+    <script src="/js/permission.js?v=7.17"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->
