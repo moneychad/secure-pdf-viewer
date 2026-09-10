@@ -153,8 +153,8 @@ body {
 
 /* 侧边栏 */
 .sidebar {
-    width: 290px;
-    min-width: 290px;
+    width: 250px;
+    min-width: 250px;
     background: #2c3e50;
     display: flex;
     flex-direction: column;
@@ -761,8 +761,8 @@ tr:hover {
     .sidebar {
         position: fixed;
         top: 0;
-        left: -300px;
-        width: 300px;
+        left: -260px;
+        width: 260px;
         height: 100vh;
         z-index: 1000;
         transition: left 0.3s ease;
@@ -2038,7 +2038,7 @@ body:not(.is-admin) .admin-only {
 }
 .fullscreen-hint.hidden { display: none !important; }
 
-/* fullscreen mode styles — target viewer-body (contains thumbnails + PDF) */
+/* fullscreen mode styles — target viewer-body */
 .viewer-body:fullscreen,
 .viewer-body:-webkit-full-screen {
     background: #1a1a2e;
@@ -2053,10 +2053,11 @@ body:not(.is-admin) .admin-only {
     max-height: none;
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto;
+    overflow: hidden;
 }
 .viewer-body:fullscreen #pdf-viewer-img,
 .viewer-body:-webkit-full-screen #pdf-viewer-img {
@@ -2071,7 +2072,7 @@ body:not(.is-admin) .admin-only {
     max-height: 100vh;
     border-radius: 0;
 }
-/* toolbar auto-hide in fullscreen: show on hover */
+/* toolbar: always visible in fullscreen */
 .zoom-toolbar.fullscreen-toolbar {
     background: rgba(0,0,0,0.8);
     padding: 10px 16px;
@@ -2097,23 +2098,6 @@ body:not(.is-admin) .admin-only {
     color: #ecf0f1;
 }
 .zoom-toolbar.fullscreen-toolbar .page-jump-input {
-    background: rgba(255,255,255,0.15);
-    border-color: rgba(255,255,255,0.3);
-    color: #ecf0f1;
-}
-.zoom-toolbar.fullscreen-toolbar .zoom-btn {
-    background: rgba(255,255,255,0.15);
-    border-color: rgba(255,255,255,0.3);
-}
-.zoom-toolbar.fullscreen-toolbar .zoom-btn:hover {
-    background: rgba(255,255,255,0.3);
-}
-.zoom-toolbar.fullscreen-toolbar .page-jump-input {
-    background: rgba(255,255,255,0.15);
-    border-color: rgba(255,255,255,0.3);
-    color: #ecf0f1;
-}
-.zoom-toolbar.fullscreen-toolbar .btn-nav {
     background: rgba(255,255,255,0.15);
     border-color: rgba(255,255,255,0.3);
     color: #ecf0f1;
