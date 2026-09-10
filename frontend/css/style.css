@@ -25,6 +25,8 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 }
 
 /* 登录页面 */
@@ -201,6 +203,8 @@ body {
     height: 100vh;
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .content-page {
@@ -1762,6 +1766,8 @@ tr:hover {
     max-height: 80vh;
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .agreement-modal-overlay h3 {
@@ -1974,6 +1980,8 @@ body:not(.is-admin) .admin-only {
 .sidebar {
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 }
 .sidebar nav {
     flex: 1;
@@ -2039,6 +2047,8 @@ body:not(.is-admin) .admin-only {
     max-height: none;
     display: flex;
     flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 }
 .pdf-viewer-wrapper:fullscreen .viewer-toolbar-fs,
 .pdf-viewer-wrapper:-webkit-full-screen .viewer-toolbar-fs {
