@@ -411,6 +411,14 @@ function bindEvents() {
 
         // 进入全屏（viewerBody 包含缩略图+PDF）
         if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
+        setTimeout(function() {
+            var vb = document.querySelector('.viewer-body');
+            var wrap = document.querySelector('.pdf-viewer-wrapper');
+            var img = document.getElementById('pdf-viewer-img');
+            console.log('[FS] vb:', vb.offsetWidth, 'x', vb.offsetHeight, 'screen:', screen.width, 'x', screen.height);
+            console.log('[FS] wrap:', wrap.offsetWidth, 'x', wrap.offsetHeight);
+            console.log('[FS] img:', img.offsetWidth, 'x', img.offsetHeight, 'nat:', img.naturalWidth, 'x', img.naturalHeight);
+        }, 500);
         else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
 
         // 工具栏：隐藏，鼠标悬浮1秒后显示
