@@ -1496,13 +1496,19 @@ async function renderPage(pageNum) {
         if (wrapper) { wrapper.scrollTop = 0; wrapper.scrollLeft = 0; wrapper.style.paddingRight = ''; wrapper.style.paddingBottom = ''; wrapper.style.justifyContent = ''; wrapper.style.alignItems = ''; }
         if (window.__zoomReset) window.__zoomReset();
         
+        // 显示加载动画
+        var spinner = document.getElementById('page-loading-spinner');
+        if (spinner) spinner.classList.remove('hidden');
+
         // 服务端渲染：直接加载指定页的图片（带水印）
         img.src = `${API_BASE}/documents/${currentDocument.id}/view?page=${pageNum}&t=${Date.now()}`;
         img.onload = function() {
             document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
+            if (spinner) spinner.classList.add('hidden');
         };
         img.onerror = function() {
             document.getElementById('viewer-page-info').textContent = '加载失败';
+            if (spinner) spinner.classList.add('hidden');
         };
     }
     
