@@ -2057,13 +2057,14 @@ body:not(.is-admin) .admin-only {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    align-self: stretch;
 }
-.viewer-body:fullscreen #pdf-viewer-img,
-.viewer-body:-webkit-full-screen #pdf-viewer-img {
-    max-width: none;
-    max-height: 100%;
-    width: auto;
-    height: 100%;
+.viewer-body:fullscreen .pdf-viewer-wrapper #pdf-viewer-img,
+.viewer-body:-webkit-full-screen .pdf-viewer-wrapper #pdf-viewer-img {
+    max-width: none !important;
+    max-height: 100% !important;
+    width: auto !important;
+    height: 100% !important;
     object-fit: contain;
 }
 .viewer-body:fullscreen .thumbnail-panel,
