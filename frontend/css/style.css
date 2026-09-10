@@ -2041,18 +2041,18 @@ body:not(.is-admin) .admin-only {
 /* fullscreen mode styles — target viewer-body */
 .viewer-body:fullscreen,
 .viewer-body:-webkit-full-screen {
-    background: #1a1a2e;
-    padding: 10px;
+    background: #000;
     display: flex;
+    align-items: center;
+    justify-content: center;
     height: 100vh;
     overflow: hidden;
 }
 .viewer-body:fullscreen .pdf-viewer-wrapper,
 .viewer-body:-webkit-full-screen .pdf-viewer-wrapper {
-    max-height: none;
+    max-height: 100vh;
     flex: 1;
     min-width: 0;
-    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
