@@ -2052,6 +2052,18 @@ body:not(.is-admin) .admin-only {
     max-height: none;
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+}
+.viewer-body:fullscreen #pdf-viewer-img,
+.viewer-body:-webkit-full-screen #pdf-viewer-img {
+    max-width: none;
+    max-height: 100%;
+    width: auto;
+    height: 100%;
+    object-fit: contain;
 }
 .viewer-body:fullscreen .thumbnail-panel,
 .viewer-body:-webkit-full-screen .thumbnail-panel {
@@ -2075,6 +2087,23 @@ body:not(.is-admin) .admin-only {
 }
 .zoom-toolbar.fullscreen-toolbar .zoom-btn,
 .zoom-toolbar.fullscreen-toolbar #zoom-level {
+    color: #ecf0f1;
+}
+.zoom-toolbar.fullscreen-toolbar .zoom-btn {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
+}
+.zoom-toolbar.fullscreen-toolbar .zoom-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+.zoom-toolbar.fullscreen-toolbar .page-jump-input {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
+    color: #ecf0f1;
+}
+.zoom-toolbar.fullscreen-toolbar .btn-nav {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
     color: #ecf0f1;
 }
 
