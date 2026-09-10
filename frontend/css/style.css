@@ -2041,7 +2041,8 @@ body:not(.is-admin) .admin-only {
 /* fullscreen mode styles — target viewer-body */
 .viewer-body:fullscreen,
 .viewer-body:-webkit-full-screen {
-    background: #000;
+    background: #1a1a1a;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
