@@ -387,6 +387,68 @@ function bindEvents() {
     if (thumbToggle) thumbToggle.addEventListener('click', toggleThumbnailPanel);
     if (thumbClose) thumbClose.addEventListener('click', () => { if (thumbPanel) thumbPanel.classList.add('hidden'); });
 
+    // ===== 全屏功能 =====
+    var fsBtn = document.getElementById('toggle-fullscreen');
+    var fsHint = document.getElementById('fullscreen-hint');
+    var fsToolbarTimer = null;
+
+    function enterFullscreen() {
+        var wrapper = document.getElementById('pdf-viewer-wrapper');
+        if (!wrapper) return;
+        // 重新排列：把 zoom-toolbar 移到 wrapper 内部（全屏时需要一起显示）
+        var toolbar = wrapper.parentElement?.querySelector('.zoom-toolbar');
+        if (toolbar && !wrapper.contains(toolbar)) {
+            wrapper.insertBefore(toolbar, wrapper.firstChild);
+        }
+        if (toolbar) {
+            toolbar.classList.add('fullscreen-toolbar', 'show');
+            // 3秒后自动隐藏，鼠标移入再显示
+            clearTimeout(fsToolbarTimer);
+            fsToolbarTimer = setTimeout(function() {
+                toolbar.classList.remove('show');
+            }, 3000);
+            toolbar.addEventListener('mouseenter', function() {
+                clearTimeout(fsToolbarTimer);
+                toolbar.classList.add('show');
+            });
+            toolbar.addEventListener('mouseleave', function() {
+                fsToolbarTimer = setTimeout(function() {
+                    toolbar.classList.remove('show');
+                }, 1500);
+            });
+        }
+        var el = wrapper;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        // 显示提示
+        if (fsHint) {
+            fsHint.classList.remove('hidden');
+            setTimeout(function() { fsHint.classList.add('hidden'); }, 3500);
+        }
+    }
+
+    function exitFullscreenCleanup() {
+        var toolbar = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
+        if (toolbar) {
+            toolbar.classList.remove('fullscreen-toolbar', 'show');
+            // 把 toolbar 移回 viewer-container
+            var vc = document.querySelector('.viewer-container');
+            if (vc && vc.querySelector('.viewer-nav')) {
+                vc.insertBefore(toolbar, vc.querySelector('.viewer-nav').nextSibling);
+            }
+        }
+        if (fsHint) fsHint.classList.add('hidden');
+    }
+
+    if (fsBtn) fsBtn.addEventListener('click', enterFullscreen);
+
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement) exitFullscreenCleanup();
+    });
+    document.addEventListener('webkitfullscreenchange', function() {
+        if (!document.webkitFullscreenElement) exitFullscreenCleanup();
+    });
+
     window.__loadThumbnails = loadThumbnails;
     window.__highlightThumbnail = highlightThumbnail;
 

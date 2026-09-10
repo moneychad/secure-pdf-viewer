@@ -1945,3 +1945,102 @@ body:not(.is-admin) .admin-only {
     font-size: 13px;
     color: #666;
 }
+
+/* ==================== v7.19: 布局优化 + 全屏 ==================== */
+/* header: remove space-between since header-right is gone */
+header {
+    justify-content: flex-start !important;
+}
+
+/* sidebar user info at bottom */
+.sidebar {
+    display: flex;
+    flex-direction: column;
+}
+.sidebar nav {
+    flex: 1;
+    overflow-y: auto;
+}
+.sidebar-user-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    flex-shrink: 0;
+}
+.sidebar-username {
+    color: #bdc3c7;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 120px;
+}
+.btn-logout {
+    background: transparent;
+    color: #e74c3c;
+    border: 1px solid #e74c3c;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.btn-logout:hover {
+    background: #e74c3c;
+    color: white;
+}
+
+/* fullscreen hint */
+.fullscreen-hint {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 14px;
+    z-index: 100;
+    pointer-events: none;
+    animation: hint-fade 3s ease forwards;
+}
+@keyframes hint-fade {
+    0%,70% { opacity: 1; }
+    100% { opacity: 0; }
+}
+.fullscreen-hint.hidden { display: none !important; }
+
+/* fullscreen mode styles */
+.pdf-viewer-wrapper:fullscreen,
+.pdf-viewer-wrapper:-webkit-full-screen {
+    background: #1a1a2e;
+    padding: 10px;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+}
+.pdf-viewer-wrapper:fullscreen .viewer-toolbar-fs,
+.pdf-viewer-wrapper:-webkit-full-screen .viewer-toolbar-fs {
+    display: flex;
+}
+/* toolbar auto-hide in fullscreen: show on hover */
+.zoom-toolbar.fullscreen-toolbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    background: rgba(0,0,0,0.6);
+    opacity: 0;
+    transition: opacity 0.3s;
+    padding: 8px 16px;
+}
+.zoom-toolbar.fullscreen-toolbar:hover,
+.zoom-toolbar.fullscreen-toolbar.show {
+    opacity: 1;
+}
+.zoom-toolbar.fullscreen-toolbar .zoom-btn,
+.zoom-toolbar.fullscreen-toolbar #zoom-level {
+    color: #ecf0f1;
+}
