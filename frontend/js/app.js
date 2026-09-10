@@ -413,6 +413,36 @@ function bindEvents() {
         if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
         else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
 
+        // Apply fullscreen styles via JS (cross-browser, bypass :fullscreen pseudo-class)
+        viewerBody.style.background = '#1a1a1a';
+        viewerBody.style.padding = '0';
+        viewerBody.style.display = 'flex';
+        viewerBody.style.height = '100vh';
+        viewerBody.style.overflow = 'hidden';
+        var wrap = document.getElementById('pdf-viewer-wrapper');
+        if (wrap) {
+            wrap.style.maxHeight = '100vh';
+            wrap.style.flex = '1';
+            wrap.style.display = 'flex';
+            wrap.style.alignItems = 'center';
+            wrap.style.justifyContent = 'center';
+            wrap.style.overflow = 'hidden';
+            wrap.style.height = '100%';
+        }
+        var img = document.getElementById('pdf-viewer-img');
+        if (img) {
+            img.style.maxWidth = 'none';
+            img.style.maxHeight = 'none';
+            img.style.width = '100%';
+            img.style.height = 'auto';
+            img.style.objectFit = 'contain';
+        }
+        var tp = document.getElementById('thumbnail-panel');
+        if (tp) {
+            tp.style.maxHeight = '100vh';
+            tp.style.borderRadius = '0';
+        }
+
         // 工具栏：隐藏，鼠标悬浮1秒后显示
         if (toolbar) {
             toolbar.classList.add('fullscreen-toolbar');
@@ -453,7 +483,16 @@ function bindEvents() {
 
     function exitFullscreenCleanup() {
         var viewerBody = document.querySelector('.viewer-body');
-        if (viewerBody) viewerBody.removeEventListener('mousemove', fsMouseMove);
+        if (viewerBody) {
+            viewerBody.removeEventListener('mousemove', fsMouseMove);
+            viewerBody.style.cssText = '';
+            var wrap = document.getElementById('pdf-viewer-wrapper');
+            if (wrap) wrap.style.cssText = '';
+            var img = document.getElementById('pdf-viewer-img');
+            if (img) img.style.cssText = '';
+            var tp = document.getElementById('thumbnail-panel');
+            if (tp) tp.style.cssText = '';
+        }
         clearTimeout(fsHoverTimer); fsHoverTimer = null;
         clearTimeout(fsShowTimer); fsShowTimer = null;
 
