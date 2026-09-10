@@ -390,8 +390,6 @@ function bindEvents() {
     // ===== 全屏功能 =====
     var fsBtn = document.getElementById('toggle-fullscreen');
     var fsHint = document.getElementById('fullscreen-hint');
-    var fsToolbarTimer = null;
-    var fsHoverTimer = null;
 
     function enterFullscreen() {
         var viewerBody = document.querySelector('.viewer-body');
@@ -415,14 +413,9 @@ function bindEvents() {
         if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
         else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
 
-        // 工具栏：底部显示，3秒后自动隐藏
+        // 工具栏：常驻显示
         if (toolbar) {
-            toolbar.classList.add('fullscreen-toolbar', 'show');
-            clearTimeout(fsToolbarTimer);
-            fsToolbarTimer = setTimeout(function() {
-                toolbar.classList.remove('show');
-            }, 3000);
-            viewerBody.addEventListener('mousemove', fsMouseMove);
+            toolbar.classList.add('fullscreen-toolbar');
         }
 
         // 提示：1秒消失
@@ -432,37 +425,12 @@ function bindEvents() {
         }
     }
 
-    function fsMouseMove(e) {
-        var viewerBody = document.querySelector('.viewer-body');
-        if (!viewerBody || !document.fullscreenElement) return;
-        var rect = viewerBody.getBoundingClientRect();
-        var yRatio = (e.clientY - rect.top) / rect.height;
-        if (yRatio > 0.5) {
-            if (!fsHoverTimer) {
-                fsHoverTimer = setTimeout(function() {
-                    var tb = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
-                    if (tb) tb.classList.add('show');
-                    clearTimeout(fsToolbarTimer);
-                    fsToolbarTimer = setTimeout(function() {
-                        if (tb) tb.classList.remove('show');
-                    }, 3000);
-                    fsHoverTimer = null;
-                }, 3000);
-            }
-        } else {
-            if (fsHoverTimer) { clearTimeout(fsHoverTimer); fsHoverTimer = null; }
-        }
-    }
+    // fsMouseMove removed — toolbar always visible in fullscreen
 
     function exitFullscreenCleanup() {
-        var viewerBody = document.querySelector('.viewer-body');
-        if (viewerBody) viewerBody.removeEventListener('mousemove', fsMouseMove);
-        clearTimeout(fsHoverTimer); fsHoverTimer = null;
-        clearTimeout(fsToolbarTimer);
-
         var toolbar = document.querySelector('.zoom-toolbar.fullscreen-toolbar');
         if (toolbar) {
-            toolbar.classList.remove('fullscreen-toolbar', 'show');
+            toolbar.classList.remove('fullscreen-toolbar');
             var vc = document.querySelector('.viewer-container');
             if (vc) {
                 var nav = vc.querySelector('.viewer-nav');

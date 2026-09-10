@@ -2044,6 +2044,7 @@ body:not(.is-admin) .admin-only {
     background: #1a1a2e;
     padding: 10px;
     display: flex;
+    flex-direction: column;
     height: 100vh;
     overflow: hidden;
 }
@@ -2052,10 +2053,11 @@ body:not(.is-admin) .admin-only {
     max-height: none;
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto;
+    overflow: hidden;
 }
 .viewer-body:fullscreen #pdf-viewer-img,
 .viewer-body:-webkit-full-screen #pdf-viewer-img {
@@ -2072,18 +2074,12 @@ body:not(.is-admin) .admin-only {
 }
 /* toolbar auto-hide in fullscreen: show on hover */
 .zoom-toolbar.fullscreen-toolbar {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    top: auto;
-    z-index: 50;
-    background: rgba(0,0,0,0.7);
-    opacity: 0;
-    transition: opacity 0.3s;
+    background: rgba(0,0,0,0.8);
     padding: 10px 16px;
     justify-content: center;
-}
-.zoom-toolbar.fullscreen-toolbar.show {
-    opacity: 1;
+    flex-shrink: 0;
+    border-radius: 6px;
+    margin-top: 8px;
 }
 .zoom-toolbar.fullscreen-toolbar .zoom-btn,
 .zoom-toolbar.fullscreen-toolbar #zoom-level {
