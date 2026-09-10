@@ -2052,12 +2052,11 @@ body:not(.is-admin) .admin-only {
     max-height: none;
     flex: 1;
     min-width: 0;
-    min-height: 0;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    align-self: stretch;
 }
 .viewer-body:fullscreen .pdf-viewer-wrapper #pdf-viewer-img,
 .viewer-body:-webkit-full-screen .pdf-viewer-wrapper #pdf-viewer-img {
