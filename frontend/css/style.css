@@ -2061,9 +2061,9 @@ body:not(.is-admin) .admin-only {
 .viewer-body:fullscreen .pdf-viewer-wrapper #pdf-viewer-img,
 .viewer-body:-webkit-full-screen .pdf-viewer-wrapper #pdf-viewer-img {
     max-width: none !important;
-    max-height: 100% !important;
-    width: auto !important;
-    height: 100% !important;
+    max-height: none !important;
+    width: 100% !important;
+    height: auto !important;
     object-fit: contain;
 }
 .viewer-body:fullscreen .thumbnail-panel,
