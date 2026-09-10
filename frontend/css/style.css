@@ -12,7 +12,8 @@ body {
     font-size: 13px;
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .hidden {
@@ -136,7 +137,7 @@ body {
 
 /* 主页面 */
 #main-page {
-    min-height: 100vh;
+    height: 100%;
     overflow: hidden;
 }
 
