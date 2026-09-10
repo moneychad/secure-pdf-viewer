@@ -2044,7 +2044,6 @@ body:not(.is-admin) .admin-only {
     background: #1a1a2e;
     padding: 10px;
     display: flex;
-    flex-direction: column;
     height: 100vh;
     overflow: hidden;
 }
