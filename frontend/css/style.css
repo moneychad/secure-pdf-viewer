@@ -142,6 +142,8 @@ body {
     flex: 1 1 0%;
     min-height: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .container {
@@ -343,8 +345,9 @@ body {
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    overflow: auto;
-    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    flex: 1 1 0%;
     min-height: 0;
 }
 
@@ -627,10 +630,12 @@ tr:hover {
 
 /* 表格容器 */
 .table-container {
-    overflow-x: auto;
+    overflow: auto;
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    flex: 1 1 0%;
+    min-height: 0;
 }
 
 /* 分页 */
@@ -1910,6 +1915,16 @@ tr:hover {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.tree-folder-header.active,
+.tree-doc.active {
+    background: #3498db;
+    color: #ffffff;
+}
+.tree-folder-header.active .tree-toggle,
+.tree-folder-header.active .tree-icon,
+.tree-doc.active .tree-doc-icon {
+    color: #ffffff;
+}
 
 
 /* ==================== 可拖动侧边栏 ==================== */
@@ -2044,20 +2059,29 @@ body:not(.is-admin) .admin-only {
     background: #1a1a1a;
     padding: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: stretch;
+    justify-content: flex-start;
     height: 100vh;
     overflow: hidden;
 }
 .viewer-body:fullscreen .pdf-viewer-wrapper,
 .viewer-body:-webkit-full-screen .pdf-viewer-wrapper {
-    max-height: 100vh;
-    flex: 1;
+    max-height: none;
+    height: 100%;
+    flex: 1 1 0%;
     min-width: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    overflow: hidden;
+    overflow: auto;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+}
+.viewer-body:fullscreen .pdf-viewer-wrapper.zoomed-in,
+.viewer-body:-webkit-full-screen .pdf-viewer-wrapper.zoomed-in {
+    align-items: flex-start;
+    justify-content: flex-start;
 }
 .viewer-body:fullscreen .pdf-viewer-wrapper #pdf-viewer-img,
 .viewer-body:-webkit-full-screen .pdf-viewer-wrapper #pdf-viewer-img {
@@ -2117,5 +2141,10 @@ body:not(.is-admin) .admin-only {
 .batch-bar { flex-shrink: 0; }
 .folder-description-bar { flex-shrink: 0; }
 
-.batch-bar { flex-shrink: 0; }
-.folder-description-bar { flex-shrink: 0; }
+/* non-table blocks in content pages should not be compressed by the scrollable table area */
+.user-form,
+.permission-toolbar,
+.change-history-filters,
+.pagination {
+    flex-shrink: 0;
+}

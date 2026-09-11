@@ -3,6 +3,10 @@
 __pycache__/
 venv/
 *.db
+*.bak*
+
+# Render cache
+backend/cache/
 
 # Uploads
 backend/uploads/*

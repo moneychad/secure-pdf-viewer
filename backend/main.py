@@ -35,6 +35,31 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 # 创建目录
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# 页面渲染缓存（最终 JPEG，含分钟级水印）
+RENDER_CACHE_DIR = Path("/opt/secure-pdf-viewer/backend/cache/rendered")
+RENDER_CACHE_TTL_SECONDS = 2 * 3600
+MAX_RENDER_DIM = 2200
+_LAST_RENDER_CACHE_CLEANUP = 0.0
+
+def cleanup_render_cache(force=False):
+    global _LAST_RENDER_CACHE_CLEANUP
+    import time
+    now = time.time()
+    if not force and now - _LAST_RENDER_CACHE_CLEANUP < 3600:
+        return
+    _LAST_RENDER_CACHE_CLEANUP = now
+    cutoff = now - RENDER_CACHE_TTL_SECONDS
+    try:
+        RENDER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        for p in RENDER_CACHE_DIR.glob("*.jpg"):
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 app = FastAPI(title="安全文档共享平台")
 
 # CORS
@@ -316,6 +341,7 @@ def hash_password(password: str) -> str:
 
 
 init_db()
+cleanup_render_cache(force=True)
 def verify_password(password: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode(), hashed.encode())
@@ -1648,22 +1674,49 @@ async def view_document(
     try:
         import pymupdf
         from datetime import datetime
+        from PIL import Image, ImageDraw, ImageFont
+        import io
+        import os
+        import hashlib
+        from fastapi.responses import Response
+
+        # 渲染结果缓存：按 文档/页码/DPI/用户/分钟 缓存最终 JPEG，重复翻页直接读缓存
+        cache_dir = RENDER_CACHE_DIR
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        try:
+            file_mtime = file_path.stat().st_mtime
+        except Exception:
+            file_mtime = 0
+        cache_key = hashlib.sha256(
+            f"{doc_id}|{doc['filename']}|{file_mtime}|{page}|{dpi}|{MAX_RENDER_DIM}|{username}|{now_str}".encode("utf-8")
+        ).hexdigest()
+        cache_file = cache_dir / f"{cache_key}.jpg"
+        resp_headers = {
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        }
+        if cache_file.exists():
+            return Response(content=cache_file.read_bytes(), media_type="image/jpeg", headers=resp_headers)
+
         pdf = pymupdf.open(str(file_path))
         if page < 1 or page > len(pdf):
             pdf.close()
             raise HTTPException(status_code=400, detail=f"页码无效，文档共 {len(pdf)} 页")
         pdf_page = pdf[page - 1]
-        # 渲染为像素图
-        mat = pymupdf.Matrix(dpi / 72, dpi / 72)
+        # 渲染为像素图；超大扫描页限制最长边，避免 dpi=150 渲染成 5000x7000 导致公网传输/渲染过慢
+        page_rect = pdf_page.rect
+        zoom = dpi / 72
+        if page_rect.width > 0 and page_rect.height > 0:
+            zoom = min(zoom, MAX_RENDER_DIM / page_rect.width, MAX_RENDER_DIM / page_rect.height)
+        mat = pymupdf.Matrix(zoom, zoom)
         pix = pdf_page.get_pixmap(matrix=mat, alpha=False)
         # 用 pymupdf 的 Pixmap 转为 PIL Image 叠加水印
-        from PIL import Image, ImageDraw, ImageFont
-        import io
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         pdf.close()
-        # 叠加水印
+        # 叠加水印（时间精确到分钟，保证同一分钟内缓存可复用）
         draw = ImageDraw.Draw(img)
-        now_str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
         wm_text1 = f"{username} | {now_str}"
         wm_text2 = "内部资料，严禁外泄"
         # 水印字体大小随 DPI 缩放
@@ -1676,7 +1729,6 @@ async def view_document(
         ]
         font_path = None
         for fp in cn_font_paths:
-            import os
             if os.path.exists(fp):
                 font_path = fp
                 break
@@ -1709,19 +1761,19 @@ async def view_document(
         img = img.convert("RGBA")
         img = Image.alpha_composite(img, overlay)
         img = img.convert("RGB")
-        # 输出 PNG
+        # 输出 JPEG（比 PNG 编码更快、体积更小）
         buf = io.BytesIO()
-        img.save(buf, format="PNG", optimize=True)
+        img.save(buf, format="JPEG", quality=88)
         img_bytes = buf.getvalue()
-        from fastapi.responses import Response
+        try:
+            cache_file.write_bytes(img_bytes)
+            cleanup_render_cache()
+        except Exception:
+            pass
         return Response(
             content=img_bytes,
-            media_type="image/png",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "X-Content-Type-Options": "nosniff",
-            }
+            media_type="image/jpeg",
+            headers=resp_headers
         )
     except HTTPException:
         raise

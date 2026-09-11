@@ -97,6 +97,7 @@ function renderFolderTree(tree) {
     });
     // 自动展开到当前目录
     expandToCurrentFolder();
+    highlightFolderTree();
 }
 
 function renderTreeNode(folder, depth) {
@@ -215,6 +216,47 @@ function expandToCurrentFolder() {
             }
         }
     });
+}
+
+function openTreeAncestors(el) {
+    if (!el) return;
+    var children = el.closest('.tree-children');
+    while (children) {
+        children.classList.add('open');
+        var header = children.previousElementSibling;
+        if (header) {
+            var toggle = header.querySelector('.tree-toggle');
+            if (toggle) toggle.classList.add('open');
+        }
+        var parentId = children.getAttribute('data-parent-id');
+        if (parentId) expandedNodeIds.add(parseInt(parentId));
+        var node = children.parentElement;
+        children = node && node.parentElement ? node.parentElement.closest('.tree-children') : null;
+    }
+}
+
+function highlightFolderTree() {
+    document.querySelectorAll('.tree-folder-header.active, .tree-doc.active').forEach(function(el) {
+        el.classList.remove('active');
+    });
+
+    var viewerPage = document.getElementById('page-viewer');
+    var viewerActive = !!(viewerPage && viewerPage.classList.contains('active') && currentDocument);
+    var target = null;
+
+    if (viewerActive) {
+        target = document.querySelector('.tree-doc[data-doc-id="' + currentDocument.id + '"]');
+    } else {
+        target = document.querySelector('.tree-node[data-folder-id="' + currentFolderId + '"] > .tree-folder-header');
+    }
+
+    if (!target) return;
+    openTreeAncestors(target);
+    target.classList.add('active');
+    var treeContainer = document.getElementById('folder-tree-container');
+    if (treeContainer && treeContainer.classList.contains('expanded')) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 }
 
 function showFolderTree() {
@@ -391,6 +433,83 @@ function bindEvents() {
     var fsBtn = document.getElementById('toggle-fullscreen');
     var fsHint = document.getElementById('fullscreen-hint');
 
+    function getFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement || null;
+    }
+
+    function isViewerFullscreen() {
+        var el = getFullscreenElement();
+        return !!(el && el.classList && el.classList.contains('viewer-body'));
+    }
+
+    function syncFullscreenLayout() {
+        if (!isViewerFullscreen()) return;
+        var viewerBody = document.querySelector('.viewer-body');
+        if (!viewerBody) return;
+
+        viewerBody.style.background = '#1a1a1a';
+        viewerBody.style.padding = '0';
+        viewerBody.style.display = 'flex';
+        viewerBody.style.alignItems = 'stretch';
+        viewerBody.style.justifyContent = 'flex-start';
+        viewerBody.style.height = '100vh';
+        viewerBody.style.overflow = 'hidden';
+
+        var wrap = document.getElementById('pdf-viewer-wrapper');
+        if (wrap) {
+            var isZoomedIn = wrap.classList.contains('zoomed-in');
+            wrap.style.maxHeight = 'none';
+            wrap.style.height = '100%';
+            wrap.style.flex = '1 1 0%';
+            wrap.style.minWidth = '0';
+            wrap.style.display = 'flex';
+            wrap.style.alignItems = 'flex-start';
+            wrap.style.justifyContent = isZoomedIn ? 'flex-start' : 'center';
+            wrap.style.overflow = 'auto';
+            wrap.style.padding = '0';
+            wrap.style.background = 'transparent';
+            wrap.style.borderRadius = '0';
+        }
+
+        var img = document.getElementById('pdf-viewer-img');
+        if (img) {
+            img.style.maxWidth = 'none';
+            img.style.maxHeight = 'none';
+            img.style.width = '100%';
+            img.style.height = 'auto';
+            img.style.objectFit = 'contain';
+        }
+
+        var tp = document.getElementById('thumbnail-panel');
+        if (tp) {
+            tp.style.maxHeight = '100vh';
+            tp.style.borderRadius = '0';
+        }
+    }
+
+    function updateFullscreenButton() {
+        if (!fsBtn) return;
+        if (isViewerFullscreen()) {
+            fsBtn.innerHTML = '⛶ 退出全屏';
+            fsBtn.title = '退出全屏';
+        } else {
+            fsBtn.innerHTML = '⛶ 全屏';
+            fsBtn.title = '全屏';
+        }
+    }
+
+    function exitFullscreen() {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+    }
+
+    function toggleFullscreen() {
+        if (isViewerFullscreen()) exitFullscreen();
+        else enterFullscreen();
+    }
+
     function enterFullscreen() {
         var viewerBody = document.querySelector('.viewer-body');
         if (!viewerBody) return;
@@ -412,36 +531,12 @@ function bindEvents() {
         // 进入全屏（viewerBody 包含缩略图+PDF）
         if (viewerBody.requestFullscreen) viewerBody.requestFullscreen();
         else if (viewerBody.webkitRequestFullscreen) viewerBody.webkitRequestFullscreen();
+        else if (viewerBody.mozRequestFullScreen) viewerBody.mozRequestFullScreen();
+        else if (viewerBody.msRequestFullscreen) viewerBody.msRequestFullscreen();
 
-        // Apply fullscreen styles via JS (cross-browser, bypass :fullscreen pseudo-class)
-        viewerBody.style.background = '#1a1a1a';
-        viewerBody.style.padding = '0';
-        viewerBody.style.display = 'flex';
-        viewerBody.style.height = '100vh';
-        viewerBody.style.overflow = 'hidden';
-        var wrap = document.getElementById('pdf-viewer-wrapper');
-        if (wrap) {
-            wrap.style.maxHeight = '100vh';
-            wrap.style.flex = '1';
-            wrap.style.display = 'flex';
-            wrap.style.alignItems = 'center';
-            wrap.style.justifyContent = 'center';
-            wrap.style.overflow = 'hidden';
-            wrap.style.height = '100%';
-        }
-        var img = document.getElementById('pdf-viewer-img');
-        if (img) {
-            img.style.maxWidth = 'none';
-            img.style.maxHeight = 'none';
-            img.style.width = '100%';
-            img.style.height = 'auto';
-            img.style.objectFit = 'contain';
-        }
-        var tp = document.getElementById('thumbnail-panel');
-        if (tp) {
-            tp.style.maxHeight = '100vh';
-            tp.style.borderRadius = '0';
-        }
+        // 全屏样式统一由 fullscreenchange 触发；这里再兜底尝试一次，兼容同步生效的浏览器
+        syncFullscreenLayout();
+        setTimeout(syncFullscreenLayout, 0);
 
         // 工具栏：隐藏，鼠标悬浮1秒后显示
         if (toolbar) {
@@ -461,7 +556,7 @@ function bindEvents() {
 
     function fsMouseMove(e) {
         var viewerBody = document.querySelector('.viewer-body');
-        if (!viewerBody || !document.fullscreenElement) return;
+        if (!viewerBody || !isViewerFullscreen()) return;
         var rect = viewerBody.getBoundingClientRect();
         var yRatio = (e.clientY - rect.top) / rect.height;
         if (yRatio > 0.7) {
@@ -507,16 +602,23 @@ function bindEvents() {
             }
         }
         if (fsHint) fsHint.classList.add('hidden');
+        updateFullscreenButton();
     }
 
-    if (fsBtn) fsBtn.addEventListener('click', enterFullscreen);
+    if (fsBtn) fsBtn.addEventListener('click', toggleFullscreen);
 
-    document.addEventListener('fullscreenchange', function() {
-        if (!document.fullscreenElement) exitFullscreenCleanup();
-    });
-    document.addEventListener('webkitfullscreenchange', function() {
-        if (!document.webkitFullscreenElement) exitFullscreenCleanup();
-    });
+    function handleFullscreenChange() {
+        if (isViewerFullscreen()) {
+            syncFullscreenLayout();
+        } else if (!getFullscreenElement()) {
+            exitFullscreenCleanup();
+        }
+        updateFullscreenButton();
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
 
     window.__loadThumbnails = loadThumbnails;
     window.__highlightThumbnail = highlightThumbnail;
@@ -600,6 +702,9 @@ function bindEvents() {
             wrapper.style.paddingRight = '';
             wrapper.style.paddingBottom = '';
         }
+
+        // 全屏状态下重挂全屏布局，避免上面清空 inline style 后回到旧的居中/隐藏溢出
+        if (isViewerFullscreen()) syncFullscreenLayout();
     }
 
     function zoomIn() { zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP); updateZoom(); }
@@ -640,8 +745,12 @@ function bindEvents() {
     var isDragging = false, dragStartX = 0, dragStartY = 0, scrollStartX = 0, scrollStartY = 0;
     if (viewerWrapper) {
         viewerWrapper.addEventListener('mousedown', function(e) {
-            // 只在放大状态下启用拖拽
-            if (zoomLevel <= 1.05) return;
+            if (e.button !== 0) return;
+            // 放大或内容已经溢出容器时都允许拖拽平移（全屏竖图 100% 也可能纵向溢出）
+            var canPan = zoomLevel > 1.05 ||
+                viewerWrapper.scrollWidth > viewerWrapper.clientWidth + 1 ||
+                viewerWrapper.scrollHeight > viewerWrapper.clientHeight + 1;
+            if (!canPan) return;
             isDragging = true;
             dragStartX = e.clientX; dragStartY = e.clientY;
             scrollStartX = viewerWrapper.scrollLeft; scrollStartY = viewerWrapper.scrollTop;
@@ -906,6 +1015,8 @@ function showPage(pageName) {
         case 'audit-logs': loadAuditLogs(); break;
         case 'change-history': loadChangeHistory(); break;
     }
+
+    highlightFolderTree();
 }
 
 // ==================== 文档管理 ====================
@@ -1151,7 +1262,16 @@ function navigateToFolder(folderId, folderName) {
     } else {
         folderPath.push({ id: folderId, name: folderName });
     }
-    loadDocuments();
+
+    // 如果当前正在文档查看页，点击目录树目录应直接切回文档列表
+    var viewerPage = document.getElementById('page-viewer');
+    var viewerActive = !!(viewerPage && viewerPage.classList.contains('active'));
+    if (viewerActive) {
+        showPage('documents');
+    } else {
+        loadDocuments();
+    }
+    highlightFolderTree();
 }
 
 function navigateToPath(index) {
@@ -1582,6 +1702,7 @@ async function viewDocument(docId, docName) {
     var tl = document.getElementById('thumbnail-list');
     if (tl) tl.innerHTML = '';
     showPage('viewer');
+    highlightFolderTree();
     
     // 服务端渲染模式：先获取总页数，再加载第1页
     try {
