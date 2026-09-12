@@ -2245,3 +2245,39 @@ body:not(.is-admin) .admin-only {
         font-size: 11px;
     }
 }
+
+/* ==================== 移动端侧边栏抽屉修复 (v7.59) ==================== */
+/* 后置的 .sidebar{position:relative}（可拖动侧边栏,1930行）覆盖了759行媒体查询的fixed抽屉，
+   导致手机端侧边栏留在文档流占位、内容被挤出首屏（白屏假象）。
+   此块位于文件末尾，确保移动端规则最终生效。 */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: -260px;
+        width: 260px;
+        height: 100vh;
+        z-index: 1000;
+        transition: left 0.3s ease;
+        overflow-y: auto;
+    }
+    .sidebar.mobile-open {
+        left: 0;
+    }
+    /* 汉堡按钮固定视口左上角（侧边栏隐藏时也可点） */
+    .mobile-menu-btn {
+        position: fixed;
+        left: 10px;
+        top: 10px;
+        z-index: 1100;
+        background: rgba(44,62,80,0.92);
+        color: #fff;
+        border-radius: 6px;
+        padding: 6px 10px;
+        line-height: 1;
+    }
+    /* 内容区给固定汉堡按钮留位 */
+    .content {
+        padding-top: 52px;
+    }
+}
