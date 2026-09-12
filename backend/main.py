@@ -53,7 +53,7 @@ def cleanup_render_cache(force=False):
     cutoff = now - RENDER_CACHE_TTL_SECONDS
     try:
         RENDER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        for p in RENDER_CACHE_DIR.glob("*.jpg"):
+        for p in list(RENDER_CACHE_DIR.glob("*.jpg")) + list(RENDER_CACHE_DIR.glob("*.webp")):
             try:
                 if p.stat().st_mtime < cutoff:
                     p.unlink()
@@ -1654,8 +1654,8 @@ from datetime import timedelta
 from fastapi.responses import Response
 
 
-def render_page_jpeg(doc_id: int, doc_filename: str, file_path: Path, page: int, dpi: int, watermark_name: str):
-    """渲染PDF指定页为带水印JPEG（分钟级缓存）。返回 (img_bytes, resp_headers)；页码无效抛HTTPException。"""
+def render_page_image(doc_id: int, doc_filename: str, file_path: Path, page: int, dpi: int, watermark_name: str, fmt: str = "jpeg"):
+    """渲染PDF指定页为带水印图片（分钟级缓存，fmt=jpeg/webp）。返回 (img_bytes, resp_headers, media_type)；页码无效抛HTTPException。"""
     import pymupdf
     from PIL import Image, ImageDraw, ImageFont
     import io
@@ -1668,16 +1668,17 @@ def render_page_jpeg(doc_id: int, doc_filename: str, file_path: Path, page: int,
     except Exception:
         file_mtime = 0
     cache_key = hashlib.sha256(
-        f"{doc_id}|{doc_filename}|{file_mtime}|{page}|{dpi}|{MAX_RENDER_DIM}|{watermark_name}|{now_str}".encode("utf-8")
+        f"{doc_id}|{doc_filename}|{file_mtime}|{page}|{dpi}|{MAX_RENDER_DIM}|{watermark_name}|{now_str}|{fmt}".encode("utf-8")
     ).hexdigest()
-    cache_file = cache_dir / f"{cache_key}.jpg"
+    cache_file = cache_dir / f"{cache_key}.{'webp' if fmt == 'webp' else 'jpg'}"
     resp_headers = {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
         "X-Content-Type-Options": "nosniff",
     }
+    media_type = "image/webp" if fmt == "webp" else "image/jpeg"
     if cache_file.exists():
-        return cache_file.read_bytes(), resp_headers
+        return cache_file.read_bytes(), resp_headers, media_type
 
     pdf = pymupdf.open(str(file_path))
     if page < 1 or page > len(pdf):
@@ -1736,14 +1737,17 @@ def render_page_jpeg(doc_id: int, doc_filename: str, file_path: Path, page: int,
     img = Image.alpha_composite(img, overlay)
     img = img.convert("RGB")
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=88)
+    if fmt == "webp":
+        img.save(buf, format="WEBP", quality=85, method=4)
+    else:
+        img.save(buf, format="JPEG", quality=88)
     img_bytes = buf.getvalue()
     try:
         cache_file.write_bytes(img_bytes)
         cleanup_render_cache()
     except Exception:
         pass
-    return img_bytes, resp_headers
+    return img_bytes, resp_headers, media_type
 
 
 class ShareLinkCreate(BaseModel):
@@ -1936,7 +1940,7 @@ async def share_document_pages(token: str, request: Request):
 
 
 @app.get("/api/share/{token}/view")
-async def share_view_document(token: str, request: Request, page: int = 1, dpi: int = 150):
+async def share_view_document(token: str, request: Request, page: int = 1, dpi: int = 110):
     """公开接口：分享链接查看文档指定页（每次都校验时效/密码，到期即失效）"""
     link, conn = _validate_share_link(token, request)
     c = conn.cursor()
@@ -1948,10 +1952,11 @@ async def share_view_document(token: str, request: Request, page: int = 1, dpi: 
     file_path = UPLOAD_DIR / doc["filename"]
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
+    fmt = "webp" if "image/webp" in request.headers.get("accept", "") else "jpeg"
     try:
-        img_bytes, resp_headers = render_page_jpeg(
-            link["document_id"], doc["filename"], file_path, page, dpi, f"访客-{token[:8]}")
-        return Response(content=img_bytes, media_type="image/jpeg", headers=resp_headers)
+        img_bytes, resp_headers, media_type = render_page_image(
+            link["document_id"], doc["filename"], file_path, page, dpi, f"访客-{token[:8]}", fmt)
+        return Response(content=img_bytes, media_type=media_type, headers=resp_headers)
     except HTTPException:
         raise
     except Exception as e:
@@ -2153,8 +2158,9 @@ async def get_document_pages(doc_id: int, token_data: dict = Depends(verify_toke
 @app.get("/api/documents/{doc_id}/view")
 async def view_document(
     doc_id: int,
+    request: Request,
     page: int = 1,
-    dpi: int = 150,
+    dpi: int = 110,
     token_data: dict = Depends(verify_token)
 ):
     """服务端渲染：将 PDF 指定页渲染为带水印的 PNG 图片，原始 PDF 永远不离开服务器"""
@@ -2182,9 +2188,10 @@ async def view_document(
     conn.commit()
     conn.close()
 
+    fmt = "webp" if "image/webp" in request.headers.get("accept", "") else "jpeg"
     try:
-        img_bytes, resp_headers = render_page_jpeg(doc_id, doc["filename"], file_path, page, dpi, username)
-        return Response(content=img_bytes, media_type="image/jpeg", headers=resp_headers)
+        img_bytes, resp_headers, media_type = render_page_image(doc_id, doc["filename"], file_path, page, dpi, username, fmt)
+        return Response(content=img_bytes, media_type=media_type, headers=resp_headers)
     except HTTPException:
         raise
     except Exception as e:

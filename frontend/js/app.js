@@ -705,6 +705,19 @@ function bindEvents() {
 
         // 全屏状态下重挂全屏布局，避免上面清空 inline style 后回到旧的居中/隐藏溢出
         if (isViewerFullscreen()) syncFullscreenLayout();
+
+        // 放大超过130%升级高清渲染(dpi 110→200)，缩回恢复；防抖400ms，重载时保留缩放级别
+        var targetDpi = (zoomLevel > 1.3) ? 200 : 110;
+        if (targetDpi !== (window.__viewDpi || 110)) {
+            clearTimeout(window.__dpiTimer);
+            window.__dpiTimer = setTimeout(function() {
+                window.__viewDpi = targetDpi;
+                window.__preserveZoom = true;
+                if (typeof renderPage === 'function' && typeof currentPage !== 'undefined' && currentPage > 0 && currentDocument) {
+                    renderPage(currentPage);
+                }
+            }, 400);
+        }
     }
 
     function zoomIn() { zoomLevel = Math.min(ZOOM_MAX, zoomLevel + ZOOM_STEP); updateZoom(); }
@@ -1755,14 +1768,15 @@ async function renderPage(pageNum) {
         img.style.maxWidth = '100%';
         var wrapper = document.getElementById('pdf-viewer-wrapper');
         if (wrapper) { wrapper.scrollTop = 0; wrapper.scrollLeft = 0; wrapper.style.paddingRight = ''; wrapper.style.paddingBottom = ''; wrapper.style.justifyContent = ''; wrapper.style.alignItems = ''; }
-        if (window.__zoomReset) window.__zoomReset();
+        if (window.__zoomReset && !window.__preserveZoom) window.__zoomReset();
+        window.__preserveZoom = false;
         
         // 显示加载动画
         var spinner = document.getElementById('page-loading-spinner');
         if (spinner) spinner.classList.remove('hidden');
 
-        // 服务端渲染：直接加载指定页的图片（带水印）
-        img.src = `${API_BASE}/documents/${currentDocument.id}/view?page=${pageNum}&t=${Date.now()}`;
+        // 服务端渲染：直接加载指定页的图片（带水印）；dpi随缩放级别切换（110常规/200高清）
+        img.src = `${API_BASE}/documents/${currentDocument.id}/view?page=${pageNum}&dpi=${window.__viewDpi || 110}&t=${Date.now()}`;
         img.onload = function() {
             document.getElementById('viewer-page-info').textContent = `第 ${pageNum} 页 / 共 ${totalPages} 页`;
             if (spinner) spinner.classList.add('hidden');

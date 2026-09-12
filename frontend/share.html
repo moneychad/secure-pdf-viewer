@@ -157,7 +157,9 @@
         loading.style.display = 'block';
         loading.textContent = '正在加载第 ' + p + ' 页…';
         try {
-            var resp = await fetch('/api/share/' + encodeURIComponent(token) + '/view?page=' + p, { headers: apiHeaders() });
+            var resp = await fetch('/api/share/' + encodeURIComponent(token) + '/view?page=' + p, {
+                headers: Object.assign(apiHeaders(), { 'Accept': 'image/webp,image/jpeg;q=0.9,*/*;q=0.8' })
+            });
             if (!resp.ok) {
                 var err = await resp.json().catch(function() { return {}; });
                 if (resp.status === 401) {
