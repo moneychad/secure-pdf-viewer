@@ -29,6 +29,8 @@ if not SECRET_KEY or SECRET_KEY == "your-secret-key-change-in-production":
     raise RuntimeError("SECRET_KEY 必须设置且不能是默认值！请通过环境变量 SECRET_KEY 设置一个强密钥。")
 UPLOAD_DIR = Path("/opt/secure-pdf-viewer/backend/uploads")
 DB_PATH = Path("/opt/secure-pdf-viewer/backend/database.db")
+# 对外基础URL：生成分享/登录链接时使用（如 https://dr.auv-x.com）；未配置则前端用当前访问来源
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
@@ -1749,6 +1751,11 @@ class ShareLinkCreate(BaseModel):
     password: Optional[str] = None
 
 
+def _public_url(path: str) -> str:
+    """生成对外链接：配置了 PUBLIC_BASE_URL 则拼域名，否则返回相对路径（前端用 location.origin 补全）"""
+    return f"{PUBLIC_BASE_URL}{path}" if PUBLIC_BASE_URL else path
+
+
 def check_password_strength(password: str, label: str = "密码") -> Optional[str]:
     """密码复杂度：≥8位，必须含数字、大小写字母、特殊字符。合格返回None，否则返回错误信息。"""
     if len(password) < 8:
@@ -1824,7 +1831,7 @@ async def create_share_link(doc_id: int, data: ShareLinkCreate, request: Request
               client_ip)
     conn.commit()
     conn.close()
-    return {"id": link_id, "token": token, "url": f"/share.html?token={token}",
+    return {"id": link_id, "token": token, "url": _public_url(f"/share.html?token={token}"),
             "expires_at": expires_at, "has_password": bool(password_hash)}
 
 
@@ -1867,6 +1874,7 @@ async def list_share_links(document_id: Optional[int] = None, token_data: dict =
             "created_at": r["created_at"], "expires_at": r["expires_at"],
             "view_count": r["view_count"],
             "has_password": bool(r["password_hash"]), "status": status,
+            "url": _public_url(f"/share.html?token={r['token']}"),
         })
     return {"links": links}
 
@@ -1985,7 +1993,7 @@ async def create_login_link(user_id: int, data: LoginLinkCreate, request: Reques
               "user", user_id, user["username"], f"有效期{data.expires_hours}小时", client_ip)
     conn.commit()
     conn.close()
-    return {"id": link_id, "token": token, "url": f"/login.html?token={token}", "expires_at": expires_at}
+    return {"id": link_id, "token": token, "url": _public_url(f"/login.html?token={token}"), "expires_at": expires_at}
 
 
 class LoginLinkUse(BaseModel):
@@ -2088,6 +2096,7 @@ async def list_login_links(token_data: dict = Depends(verify_token)):
             "created_at": r["created_at"], "expires_at": r["expires_at"],
             "use_count": r["use_count"], "last_used_at": r["last_used_at"],
             "status": status,
+            "url": _public_url(f"/login.html?token={r['token']}"),
         })
     return {"links": links}
 

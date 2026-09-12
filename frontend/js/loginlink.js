@@ -43,7 +43,7 @@ async function createLoginLink() {
         });
         var data = await response.json();
         if (response.ok) {
-            document.getElementById('login-link-url').value = location.origin + data.url;
+            document.getElementById('login-link-url').value = fullLinkUrl(data.url);
             document.getElementById('login-link-info').innerHTML =
                 '有效期至：' + formatDate(data.expires_at) + '（北京时间）<br>' +
                 '有效期内不限使用次数；可随时在「登录链接管理」中吊销，吊销后立即无法登录。';
@@ -70,13 +70,13 @@ function copyLoginLinkUrl() {
     }
 }
 
-function copyLoginLinkByToken(token) {
-    var url = location.origin + '/login.html?token=' + token;
+function copyLoginLink(url) {
+    var fullUrl = fullLinkUrl(url);
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(function() { alert('链接已复制'); });
+        navigator.clipboard.writeText(fullUrl).then(function() { alert('链接已复制'); });
     } else {
         var ta = document.createElement('textarea');
-        ta.value = url;
+        ta.value = fullUrl;
         document.body.appendChild(ta);
         ta.select();
         document.execCommand('copy');
@@ -121,7 +121,7 @@ async function loadLoginLinks() {
             html += '<td><span class="share-status ' + st.cls + '">' + st.label + '</span></td>';
             html += '<td>';
             if (link.status === 'active') {
-                html += '<button class="btn-sm btn-secondary" onclick="copyLoginLinkByToken(\'' + link.token + '\')" title="复制链接">📋</button> ';
+                html += '<button class="btn-sm btn-secondary" onclick="copyLoginLink(\'' + link.url + '\')" title="复制链接">📋</button> ';
                 html += '<button class="btn-sm btn-danger" onclick="revokeLoginLink(' + link.id + ')" title="吊销">吊销</button>';
             } else {
                 html += '<span style="color:#999;font-size:12px;">—</span>';

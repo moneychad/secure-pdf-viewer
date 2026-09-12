@@ -1,6 +1,11 @@
 // ==================== 分享链接管理（仅管理员） ====================
 // 动态分享链接：签名token + 时效 + 可选访问密码（复杂度强制），有效期内不限打开次数
 
+// 统一拼链接：后端返回绝对URL（配置了PUBLIC_BASE_URL）就直接用，相对路径则用当前访问来源补全
+function fullLinkUrl(u) {
+    return (u && u.indexOf('http') === 0) ? u : location.origin + u;
+}
+
 function showShareModal(docId, docName) {
     document.getElementById('share-doc-id').value = docId;
     document.getElementById('share-doc-name').textContent = docName;
@@ -71,7 +76,7 @@ async function createShareLink() {
 }
 
 function showShareResult(data) {
-    var fullUrl = location.origin + data.url;
+    var fullUrl = fullLinkUrl(data.url);
     document.getElementById('share-result-url').value = fullUrl;
     var info = '有效期至：' + formatDate(data.expires_at) + '（北京时间）<br>' +
                '访问密码：' + (data.has_password ? '已设置' : '无') + '<br>' +
@@ -96,13 +101,13 @@ function copyShareUrl() {
     }
 }
 
-function copyShareLinkByToken(token) {
-    var url = location.origin + '/share.html?token=' + token;
+function copyShareLink(url) {
+    var fullUrl = fullLinkUrl(url);
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(function() { alert('链接已复制'); });
+        navigator.clipboard.writeText(fullUrl).then(function() { alert('链接已复制'); });
     } else {
         var ta = document.createElement('textarea');
-        ta.value = url;
+        ta.value = fullUrl;
         document.body.appendChild(ta);
         ta.select();
         document.execCommand('copy');
@@ -153,7 +158,7 @@ async function loadShareLinks() {
             html += '<td><span class="share-status ' + st.cls + '">' + st.label + '</span></td>';
             html += '<td>';
             if (link.status === 'active') {
-                html += '<button class="btn-sm btn-secondary" onclick="copyShareLinkByToken(\'' + link.token + '\')" title="复制链接">📋</button> ';
+                html += '<button class="btn-sm btn-secondary" onclick="copyShareLink(\'' + link.url + '\')" title="复制链接">📋</button> ';
                 html += '<button class="btn-sm btn-danger" onclick="revokeShareLink(' + link.id + ')" title="吊销">吊销</button>';
             } else {
                 html += '<span style="color:#999;font-size:12px;">—</span>';
