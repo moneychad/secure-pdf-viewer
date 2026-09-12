@@ -219,6 +219,19 @@ def init_db():
         is_revoked INTEGER DEFAULT 0
     )''')
 
+    # 登录链接设备表（每链接最多5台不同设备）
+    c.execute('''CREATE TABLE IF NOT EXISTS login_link_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        link_id INTEGER NOT NULL,
+        fingerprint_hash TEXT NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        use_count INTEGER DEFAULT 1,
+        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(link_id, fingerprint_hash)
+    )''')
+
     # 设备指纹表（定义在下方237行）
     # 协议签署记录表（补充建表，之前漏了导致协议上报500）
     c.execute('''CREATE TABLE IF NOT EXISTS agreement_logs (
@@ -2011,10 +2024,14 @@ async def create_login_link(user_id: int, data: LoginLinkCreate, request: Reques
     return {"id": link_id, "token": token, "url": _public_url(f"/login.html?token={token}"), "expires_at": expires_at}
 
 
+MAX_LINK_DEVICES = 5  # 每个登录链接允许的不同设备数上限
+
+
 class LoginLinkUse(BaseModel):
     token: str
     username: Optional[str] = None
     password: Optional[str] = None
+    fingerprint_hash: Optional[str] = None
 
 
 @app.post("/api/login-link")
@@ -2068,6 +2085,28 @@ async def use_login_link(data: LoginLinkUse, request: Request):
         record_login_attempt(client_ip, success=False)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
+    # 设备数限制：同一链接最多 MAX_LINK_DEVICES 台不同设备
+    fp = (data.fingerprint_hash or "").strip()
+    if not fp:
+        conn.close()
+        raise HTTPException(status_code=400, detail="无法识别您的设备指纹，请使用现代浏览器（Chrome/Edge/Safari）重试")
+    ua = request.headers.get("User-Agent", "")[:300]
+    c.execute("SELECT id FROM login_link_devices WHERE link_id = ? AND fingerprint_hash = ?", (link["id"], fp))
+    dev = c.fetchone()
+    if dev:
+        c.execute("""UPDATE login_link_devices SET use_count = use_count + 1, last_seen = CURRENT_TIMESTAMP,
+                     ip_address = ?, user_agent = ? WHERE id = ?""", (client_ip, ua, dev["id"]))
+    else:
+        c.execute("SELECT COUNT(DISTINCT fingerprint_hash) FROM login_link_devices WHERE link_id = ?", (link["id"],))
+        dev_cnt = c.fetchone()[0]
+        if dev_cnt >= MAX_LINK_DEVICES:
+            conn.close()
+            raise HTTPException(
+                status_code=403,
+                detail=f"该登录链接已在 {MAX_LINK_DEVICES} 台不同设备上登录，已达设备数上限。如需在新设备登录，请联系平台管理员移除部分旧设备后重试。")
+        c.execute("INSERT INTO login_link_devices (link_id, fingerprint_hash, ip_address, user_agent) VALUES (?, ?, ?, ?)",
+                  (link["id"], fp, client_ip, ua))
+
     remaining_secs = int((expires_at - now).total_seconds())
     session_seconds = min(86400, max(60, remaining_secs))
     c.execute("UPDATE login_links SET use_count = use_count + 1, last_used_at = ? WHERE id = ?",
@@ -2101,6 +2140,51 @@ async def use_login_link(data: LoginLinkUse, request: Request):
         max_age=session_seconds
     )
     return response
+
+
+
+
+@app.get("/api/login-links/{link_id}/devices")
+async def list_login_link_devices(link_id: int, token_data: dict = Depends(verify_token)):
+    """登录链接的设备列表（仅管理员）"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看链接设备")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM login_links WHERE id = ?", (link_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="登录链接不存在")
+    c.execute("""SELECT id, fingerprint_hash, ip_address, user_agent, use_count, first_seen, last_seen
+                 FROM login_link_devices WHERE link_id = ? ORDER BY last_seen DESC""", (link_id,))
+    devices = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return {"devices": devices, "max_devices": MAX_LINK_DEVICES}
+
+
+class DeviceRemove(BaseModel):
+    device_ids: List[int]
+
+
+@app.post("/api/login-links/{link_id}/devices/remove")
+async def remove_login_link_devices(link_id: int, data: DeviceRemove, request: Request, token_data: dict = Depends(verify_token)):
+    """移除登录链接的指定设备（仅管理员），为新设备腾出位置"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以移除链接设备")
+    if not data.device_ids:
+        raise HTTPException(status_code=400, detail="请选择要移除的设备")
+    conn = get_db()
+    c = conn.cursor()
+    placeholders = ",".join(["?"] * len(data.device_ids))
+    c.execute(f"DELETE FROM login_link_devices WHERE link_id = ? AND id IN ({placeholders})",
+              [link_id] + list(data.device_ids))
+    removed = c.rowcount
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, token_data.get("user_id"), token_data.get("username"), "remove_link_devices",
+              "login_link", link_id, None, f"移除{removed}台设备", client_ip)
+    conn.commit()
+    conn.close()
+    return {"message": f"已移除 {removed} 台设备", "removed": removed}
 
 
 @app.get("/api/login-links")
@@ -2713,7 +2797,8 @@ async def copy_permissions(req: PermissionCopyRequest, token_data: dict = Depend
 async def register_fingerprint(fingerprint: DeviceFingerprint, request: Request, token_data: dict = Depends(verify_token)):
     conn = get_db()
     c = conn.cursor()
-    ip_address = request.client.host
+    # 优先取反向代理传来的真实客户端IP（外层Nginx X-Real-IP）
+    ip_address = request.headers.get("X-Real-IP") or (request.client.host if request.client else None)
     
     c.execute("""INSERT OR REPLACE INTO device_fingerprints 
                 (fingerprint_hash, username, last_seen, ip_address, user_agent, 

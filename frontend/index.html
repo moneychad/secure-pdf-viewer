@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AUV-X Data Room</title>
-    <link rel="stylesheet" href="/css/style.css?v=7.59">
+    <link rel="stylesheet" href="/css/style.css?v=7.60">
 </head>
 <body>
     <div id="app">
@@ -526,6 +526,19 @@
         </div>
     </div>
 
+    <!-- 登录链接设备管理弹窗 -->
+    <div id="login-link-devices-modal" class="modal hidden">
+        <div class="modal-content" style="min-width:760px;max-width:960px;">
+            <h3>📱 链接设备管理</h3>
+            <div id="devices-limit-info" style="font-size:12px;color:#7f8c8d;margin-bottom:10px;"></div>
+            <div id="login-link-devices-list" style="max-height:55vh;overflow:auto;"></div>
+            <div class="modal-actions">
+                <button class="btn-danger" id="devices-remove-btn" onclick="removeSelectedDevices()" disabled>移除选中设备</button>
+                <button class="btn-secondary" onclick="closeModal('login-link-devices-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 创建分享链接弹窗 -->
     <div id="share-create-modal" class="modal hidden">
         <div class="modal-content">
@@ -684,12 +697,12 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=7.59"></script>
-    <script src="/js/groups.js?v=7.59"></script>
-    <script src="/js/extend.js?v=7.59"></script>
-    <script src="/js/permission.js?v=7.59"></script>
-    <script src="/js/share.js?v=7.59"></script>
-    <script src="/js/loginlink.js?v=7.59"></script>
+    <script src="/js/app.js?v=7.60"></script>
+    <script src="/js/groups.js?v=7.60"></script>
+    <script src="/js/extend.js?v=7.60"></script>
+    <script src="/js/permission.js?v=7.60"></script>
+    <script src="/js/share.js?v=7.60"></script>
+    <script src="/js/loginlink.js?v=7.60"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->

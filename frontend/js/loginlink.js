@@ -127,6 +127,7 @@ async function loadLoginLinks() {
             } else {
                 html += '<span style="color:#999;font-size:12px;">—</span>';
             }
+            html += '<button class="btn-sm btn-secondary" onclick="showLinkDevicesModal(' + link.id + ', \'' + escapeHtml(link.target_username) + '\')" title="设备管理" style="margin-left:4px;">📱</button>';
             html += '</td></tr>';
         });
         html += '</tbody></table>';
@@ -148,6 +149,88 @@ async function revokeLoginLink(linkId) {
             await loadLoginLinks();
         } else {
             alert(data.detail || '吊销失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+// ==================== 登录链接设备管理 ====================
+var currentDevicesLinkId = null;
+
+async function showLinkDevicesModal(linkId, username) {
+    currentDevicesLinkId = linkId;
+    document.getElementById('login-link-devices-modal').classList.remove('hidden');
+    document.getElementById('devices-limit-info').textContent = '加载中…';
+    await loadLinkDevices();
+}
+
+function toggleDeviceRemoveBtn() {
+    var checked = document.querySelectorAll('.device-checkbox:checked').length;
+    document.getElementById('devices-remove-btn').disabled = (checked === 0);
+}
+
+async function loadLinkDevices() {
+    var container = document.getElementById('login-link-devices-list');
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#666;">加载中…</div>';
+    try {
+        var response = await fetch(API_BASE + '/login-links/' + currentDevicesLinkId + '/devices', { credentials: 'include' });
+        var data = await response.json();
+        if (!response.ok) {
+            container.innerHTML = '<div style="padding:20px;text-align:center;color:#e74c3c;">' + escapeHtml(data.detail || '加载失败') + '</div>';
+            return;
+        }
+        var devices = data.devices || [];
+        var maxD = data.max_devices || 5;
+        document.getElementById('devices-limit-info').innerHTML =
+            '该链接最多允许 <strong>' + maxD + '</strong> 台不同设备登录，当前已使用 <strong>' + devices.length + '</strong> 台。' +
+            (devices.length >= maxD ? '<span style="color:#e74c3c;">已达上限，移除设备后新设备才能登录。</span>' : '移除设备可为新设备腾出位置。');
+        if (devices.length === 0) {
+            container.innerHTML = '<div style="padding:30px;text-align:center;color:#666;">暂无设备记录（还没有设备通过该链接登录过）</div>';
+            document.getElementById('devices-remove-btn').disabled = true;
+            return;
+        }
+        var html = '<table class="share-links-table"><thead><tr>' +
+            '<th><input type="checkbox" onchange="var c=this.checked;document.querySelectorAll(\'.device-checkbox\').forEach(function(x){x.checked=c;});toggleDeviceRemoveBtn();"></th>' +
+            '<th>设备指纹</th><th>IP地址</th><th>设备/浏览器</th><th>登录次数</th><th>首次登录</th><th>最近登录</th>' +
+            '</tr></thead><tbody>';
+        devices.forEach(function(d) {
+            var ua = (d.user_agent || '-');
+            var uaShort = ua.length > 40 ? ua.slice(0, 40) + '…' : ua;
+            html += '<tr>';
+            html += '<td><input type="checkbox" class="device-checkbox" value="' + d.id + '" onchange="toggleDeviceRemoveBtn()"></td>';
+            html += '<td title="' + escapeHtml(d.fingerprint_hash) + '">' + escapeHtml(d.fingerprint_hash.slice(0, 12)) + '…</td>';
+            html += '<td>' + escapeHtml(d.ip_address || '-') + '</td>';
+            html += '<td title="' + escapeHtml(ua) + '">' + escapeHtml(uaShort) + '</td>';
+            html += '<td>' + d.use_count + '</td>';
+            html += '<td>' + formatDate(d.first_seen) + '</td>';
+            html += '<td>' + formatDate(d.last_seen) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        document.getElementById('devices-remove-btn').disabled = true;
+    } catch (error) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:#e74c3c;">网络错误</div>';
+    }
+}
+
+async function removeSelectedDevices() {
+    var ids = Array.from(document.querySelectorAll('.device-checkbox:checked')).map(function(x) { return parseInt(x.value); });
+    if (ids.length === 0) return;
+    if (!confirm('确定移除选中的 ' + ids.length + ' 台设备吗？移除后这些设备需要重新登录，同时为新设备腾出位置。')) return;
+    try {
+        var response = await fetch(API_BASE + '/login-links/' + currentDevicesLinkId + '/devices/remove', {
+            credentials: 'include',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_ids: ids })
+        });
+        var data = await response.json();
+        if (response.ok) {
+            await loadLinkDevices();
+        } else {
+            alert(data.detail || '移除失败');
         }
     } catch (error) {
         alert('网络错误，请重试');
