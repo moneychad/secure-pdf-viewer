@@ -42,6 +42,7 @@ renderUsers = function(users) {
                     ${user.is_active ? '🚫' : '✅'}
                 </button>
                 <button class="btn-action btn-reset" onclick="resetPassword(${user.id})" title="重置密码">🔑</button>
+                <button class="btn-action btn-loginlink" onclick="showLoginLinkModal(${user.id}, '${escapeHtml(user.username)}')" title="生成登录链接">🔗</button>
                 ${user.username !== currentUser.username ? '<button class="btn-action btn-delete" onclick="deleteUser(' + user.id + ')" title="删除">🗑️</button>' : ''}
             </td>
         </tr>

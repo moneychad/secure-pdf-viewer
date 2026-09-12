@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>登录 - AUV-X Data Room</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .card { background: #fff; border-radius: 12px; padding: 40px 44px; width: 380px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        .card h1 { font-size: 20px; color: #2c3e50; margin-bottom: 8px; }
+        .card .sub { font-size: 13px; color: #7f8c8d; margin-bottom: 24px; }
+        .spinner { border: 3px solid #ecf0f1; border-top-color: #667eea; border-radius: 50%; width: 36px; height: 36px; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status { font-size: 14px; color: #34495e; }
+        .error-box { display: none; }
+        .error-box .icon { font-size: 42px; margin-bottom: 12px; }
+        .error-box h2 { font-size: 17px; color: #2c3e50; margin-bottom: 8px; }
+        .error-box p { font-size: 13px; color: #e74c3c; line-height: 1.6; }
+        .error-box .tip { font-size: 12px; color: #95a5a6; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <div class="card" id="loading-card">
+        <h1>🔒 AUV-X Data Room</h1>
+        <div class="sub">安全文档共享平台</div>
+        <div class="spinner"></div>
+        <div class="status" id="status-text">正在验证登录链接…</div>
+    </div>
+
+    <div class="card error-box" id="error-card">
+        <div class="icon">⛔</div>
+        <h2>无法登录</h2>
+        <p id="error-msg"></p>
+        <div class="tip">请联系平台管理员获取新的登录链接</div>
+    </div>
+
+<script>
+(function() {
+    var token = new URLSearchParams(location.search).get('token') || '';
+
+    function showError(msg) {
+        document.getElementById('loading-card').style.display = 'none';
+        var card = document.getElementById('error-card');
+        card.style.display = 'block';
+        document.getElementById('error-msg').textContent = msg;
+    }
+
+    if (!token) {
+        showError('登录链接无效：缺少 token 参数');
+        return;
+    }
+
+    fetch('/api/login-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token: token })
+    }).then(function(resp) {
+        if (!resp.ok) {
+            return resp.json().then(function(d) {
+                throw new Error(d.detail || ('错误 ' + resp.status));
+            });
+        }
+        return resp.json();
+    }).then(function(data) {
+        document.getElementById('status-text').textContent =
+            '验证成功，正在以「' + data.user.username + '」身份进入平台…';
+        // 清理地址栏中的 token，避免二次传播
+        try { history.replaceState(null, '', '/login.html'); } catch (e) {}
+        setTimeout(function() { location.href = '/'; }, 600);
+    }).catch(function(e) {
+        showError(e.message || '网络错误，请稍后重试');
+    });
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AUV-X Data Room</title>
-    <link rel="stylesheet" href="/css/style.css?v=7.52">
+    <link rel="stylesheet" href="/css/style.css?v=7.54">
 </head>
 <body>
     <div id="app">
@@ -72,6 +72,7 @@
                                 <button class="btn-primary admin-only" onclick="showCreateFolderModal()">&#128193; 新建目录</button>
                             <button class="btn-primary admin-only" onclick="showUploadModal()">&#128228; 上传文档</button>
                             <button class="btn-primary admin-only" onclick="showDirUploadModal()">&#128194; 上传目录</button>
+                            <button class="btn-primary admin-only" onclick="showShareManageModal()">&#128279; 分享管理</button>
                             </div>
                         </div>
                         
@@ -267,13 +268,16 @@
 
                     <!-- 用户管理 -->
                     <div id="page-users" class="content-page">
-                        <h2>用户管理</h2>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <h2>用户管理</h2>
+                            <button class="btn-primary" onclick="showLoginLinkManageModal()">&#128279; 登录链接管理</button>
+                        </div>
                         <div class="user-form">
                             <h3>创建新用户</h3>
                             <form id="create-user-form">
                                 <div class="form-row">
                                     <input type="text" id="new-username" placeholder="用户名" required>
-                                    <input type="password" id="new-password" placeholder="密码" required>
+                                    <input type="password" id="new-password" placeholder="密码（至少8位，含数字/大小写/特殊字符）" required>
                                     <select id="new-role">
                                         <option value="viewer">普通用户</option>
                                         <option value="admin">管理员</option>
@@ -402,7 +406,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>新密码</label>
-                                    <input type="password" id="new-password-change" placeholder="请输入新密码（至少6位）" required>
+                                    <input type="password" id="new-password-change" placeholder="至少8位，含数字/大小写字母/特殊字符" required>
                                 </div>
                                 <div class="form-group">
                                     <label>确认新密码</label>
@@ -460,6 +464,116 @@
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('move-doc-modal')">取消</button>
                 <button class="btn-primary" onclick="moveDocument()">移动</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建平台登录链接弹窗 -->
+    <div id="login-link-create-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>🔗 生成平台登录链接</h3>
+            <div class="form-group">
+                <label>目标账号（访客将以该账号身份登录，权限/水印跟随该账号）</label>
+                <div id="login-link-username" style="padding:8px 12px;background:#f5f6fa;border-radius:6px;font-size:13px;color:#2c3e50;"></div>
+            </div>
+            <input type="hidden" id="login-link-user-id">
+            <div class="form-group">
+                <label>有效期（过期后链接失效，已登录会话同步失效）</label>
+                <select id="login-link-expires">
+                    <option value="1">1 小时</option>
+                    <option value="24" selected>24 小时（默认）</option>
+                    <option value="72">3 天</option>
+                    <option value="168">7 天</option>
+                </select>
+            </div>
+            <div id="login-link-result" style="display:none;">
+                <div class="form-group">
+                    <label>登录链接（发送给外部人员即可，无需密码）</label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="login-link-url" readonly style="flex:1;font-size:12px;">
+                        <button class="btn-primary" onclick="copyLoginLinkUrl()">复制</button>
+                    </div>
+                </div>
+                <div id="login-link-info" style="font-size:12px;color:#666;line-height:1.8;"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('login-link-create-modal')">关闭</button>
+                <button class="btn-primary" id="login-link-gen-btn" onclick="createLoginLink()">生成链接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 平台登录链接管理弹窗 -->
+    <div id="login-link-manage-modal" class="modal hidden">
+        <div class="modal-content" style="min-width:820px;max-width:1000px;">
+            <h3>🔗 平台登录链接管理</h3>
+            <div id="login-links-list" style="max-height:60vh;overflow:auto;"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('login-link-manage-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建分享链接弹窗 -->
+    <div id="share-create-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>🔗 创建分享链接</h3>
+            <div class="form-group">
+                <label>文档</label>
+                <div id="share-doc-name" style="padding:8px 12px;background:#f5f6fa;border-radius:6px;font-size:13px;color:#2c3e50;word-break:break-all;"></div>
+            </div>
+            <input type="hidden" id="share-doc-id">
+            <div class="form-group">
+                <label>有效期（过期后链接自动失效）</label>
+                <select id="share-expires" onchange="toggleShareExpiresCustom()">
+                    <option value="1">1 小时</option>
+                    <option value="24" selected>24 小时（默认）</option>
+                    <option value="72">3 天</option>
+                    <option value="168">7 天</option>
+                    <option value="custom">自定义…</option>
+                </select>
+                <input type="number" id="share-expires-custom" min="1" max="720" style="display:none;margin-top:8px;" placeholder="自定义小时数 (1-720)">
+            </div>
+            <div class="form-group">
+                <label>访问密码（可选，留空则不需要密码）</label>
+                <input type="text" id="share-password" placeholder="至少8位，含数字/大小写字母/特殊字符" autocomplete="off">
+                <div id="share-pwd-err" style="color:#e74c3c;font-size:12px;margin-top:4px;min-height:14px;"></div>
+            </div>
+            <div style="font-size:12px;color:#7f8c8d;line-height:1.6;margin-bottom:4px;">
+                有效期内不限打开次数；链接可随时在「分享管理」中吊销。
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('share-create-modal')">取消</button>
+                <button class="btn-primary" onclick="createShareLink()">生成链接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分享链接生成结果弹窗 -->
+    <div id="share-result-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>✅ 分享链接已生成</h3>
+            <div class="form-group">
+                <label>链接地址（发送给外部人员即可，无需账号）</label>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" id="share-result-url" readonly style="flex:1;font-size:12px;">
+                    <button class="btn-primary" onclick="copyShareUrl()">复制</button>
+                </div>
+            </div>
+            <div id="share-result-info" style="font-size:12px;color:#666;line-height:1.8;"></div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="closeModal('share-result-modal')">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分享链接管理弹窗 -->
+    <div id="share-manage-modal" class="modal hidden">
+        <div class="modal-content" style="min-width:760px;max-width:960px;">
+            <h3>🔗 分享链接管理</h3>
+            <div id="share-links-list" style="max-height:60vh;overflow:auto;"></div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('share-manage-modal')">关闭</button>
             </div>
         </div>
     </div>
@@ -558,10 +672,12 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=7.52"></script>
-    <script src="/js/groups.js?v=7.52"></script>
-    <script src="/js/extend.js?v=7.52"></script>
-    <script src="/js/permission.js?v=7.52"></script>
+    <script src="/js/app.js?v=7.54"></script>
+    <script src="/js/groups.js?v=7.54"></script>
+    <script src="/js/extend.js?v=7.54"></script>
+    <script src="/js/permission.js?v=7.54"></script>
+    <script src="/js/share.js?v=7.54"></script>
+    <script src="/js/loginlink.js?v=7.54"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->

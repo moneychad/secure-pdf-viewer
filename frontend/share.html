@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>外部分享 - AUV-X Data Room</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #2c3e50; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        .share-header { background: #1a252f; color: #ecf0f1; padding: 10px 20px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+        .share-header .brand { font-size: 15px; font-weight: 600; }
+        .share-header .badge { background: #e67e22; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+        .share-header .doc-name { font-size: 13px; color: #bdc3c7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+        .share-header .expire { font-size: 12px; color: #95a5a6; white-space: nowrap; }
+        .share-toolbar { background: #34495e; padding: 8px 20px; display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; }
+        .share-toolbar button { background: #4a6fa5; color: #fff; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .share-toolbar button:disabled { background: #5d6d7e; cursor: not-allowed; opacity: 0.6; }
+        .share-toolbar .page-info { color: #ecf0f1; font-size: 13px; }
+        .share-toolbar .page-info input { width: 48px; padding: 4px; text-align: center; border: 1px solid #5d6d7e; border-radius: 4px; background: #2c3e50; color: #fff; }
+        .share-viewer { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
+        .share-viewer img { max-width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.5); background: #fff; user-select: none; -webkit-user-drag: none; }
+        .share-loading { color: #bdc3c7; font-size: 14px; padding: 60px; text-align: center; }
+        .share-overlay { position: fixed; inset: 0; background: rgba(20,28,36,0.97); display: flex; align-items: center; justify-content: center; z-index: 100; }
+        .share-overlay.hidden { display: none; }
+        .share-card { background: #fff; border-radius: 10px; padding: 36px 40px; width: 360px; text-align: center; }
+        .share-card h2 { font-size: 18px; color: #2c3e50; margin-bottom: 8px; }
+        .share-card p { font-size: 13px; color: #7f8c8d; margin-bottom: 20px; }
+        .share-card input { width: 100%; padding: 10px 12px; border: 1px solid #dcdde1; border-radius: 6px; font-size: 14px; margin-bottom: 14px; }
+        .share-card button { width: 100%; padding: 10px; background: #4a6fa5; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+        .share-card button:hover { background: #3d5d8a; }
+        .share-card .err { color: #e74c3c; font-size: 12px; margin-top: 10px; min-height: 16px; }
+        .share-error-card .icon { font-size: 42px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <div class="share-header">
+        <span class="brand">🔒 AUV-X Data Room</span>
+        <span class="badge">外部分享</span>
+        <span class="doc-name" id="doc-name"></span>
+        <span class="expire" id="expire-info"></span>
+    </div>
+    <div class="share-toolbar" id="toolbar" style="visibility:hidden;">
+        <button id="prev-btn" onclick="goPage(currentPage - 1)">‹ 上一页</button>
+        <span class="page-info">
+            <input type="number" id="page-input" min="1" value="1" onchange="goPage(parseInt(this.value))"> / <span id="total-pages">-</span>
+        </span>
+        <button id="next-btn" onclick="goPage(currentPage + 1)">下一页 ›</button>
+    </div>
+    <div class="share-viewer" id="viewer">
+        <div class="share-loading" id="loading">正在加载文档…</div>
+        <img id="page-img" style="display:none;" alt="" oncontextmenu="return false" draggable="false">
+    </div>
+
+    <!-- 密码门 -->
+    <div class="share-overlay hidden" id="pwd-overlay">
+        <div class="share-card">
+            <h2>🔑 需要访问密码</h2>
+            <p>此分享链接已设置访问密码，请输入后查看</p>
+            <input type="password" id="pwd-input" placeholder="请输入访问密码" onkeydown="if(event.key==='Enter')submitPwd()">
+            <button onclick="submitPwd()">确认</button>
+            <div class="err" id="pwd-err"></div>
+        </div>
+    </div>
+
+    <!-- 错误页 -->
+    <div class="share-overlay hidden" id="err-overlay">
+        <div class="share-card share-error-card">
+            <div class="icon">⛔</div>
+            <h2 id="err-title">链接不可用</h2>
+            <p id="err-msg"></p>
+        </div>
+    </div>
+
+<script>
+(function() {
+    var token = new URLSearchParams(location.search).get('token') || '';
+    var sharePassword = '';
+    try { sharePassword = sessionStorage.getItem('share_pwd_' + token) || ''; } catch (e) {}
+    var currentPage = 1, totalPages = 0, currentObjectUrl = null;
+
+    if (!token) { showError('链接无效', '缺少分享 token 参数'); return; }
+
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    function apiHeaders() {
+        var h = {};
+        if (sharePassword) h['X-Share-Password'] = sharePassword;
+        return h;
+    }
+
+    function showError(title, msg) {
+        document.getElementById('err-title').textContent = title;
+        document.getElementById('err-msg').textContent = msg || '';
+        document.getElementById('err-overlay').classList.remove('hidden');
+        document.getElementById('pwd-overlay').classList.add('hidden');
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    function fmtBeijing(utcStr) {
+        // 后端存储为 UTC "YYYY-MM-DD HH:MM:SS"，转北京时间显示
+        var d = new Date(utcStr.replace(' ', 'T') + 'Z');
+        if (isNaN(d.getTime())) return utcStr;
+        return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    }
+
+    async function loadInfo() {
+        try {
+            var resp = await fetch('/api/share/' + encodeURIComponent(token) + '/pages', { headers: apiHeaders() });
+            if (resp.status === 401) {
+                document.getElementById('pwd-overlay').classList.remove('hidden');
+                document.getElementById('loading').textContent = '等待输入访问密码…';
+                if (sharePassword) document.getElementById('pwd-err').textContent = '密码不正确，请重新输入';
+                return;
+            }
+            if (!resp.ok) {
+                var err = await resp.json().catch(function() { return {}; });
+                showError('链接不可用', err.detail || ('错误 ' + resp.status));
+                return;
+            }
+            var data = await resp.json();
+            document.getElementById('pwd-overlay').classList.add('hidden');
+            totalPages = data.total_pages;
+            document.getElementById('total-pages').textContent = totalPages;
+            document.getElementById('page-input').max = totalPages;
+            document.getElementById('doc-name').textContent = data.document_name || '';
+            document.title = (data.document_name || '外部分享') + ' - AUV-X Data Room';
+            document.getElementById('expire-info').textContent = '有效期至 ' + fmtBeijing(data.expires_at) + '（北京时间）';
+            document.getElementById('toolbar').style.visibility = 'visible';
+            goPage(1);
+        } catch (e) {
+            showError('网络错误', '无法连接服务器，请稍后重试');
+        }
+    }
+
+    window.submitPwd = function() {
+        var v = document.getElementById('pwd-input').value.trim();
+        if (!v) { document.getElementById('pwd-err').textContent = '请输入密码'; return; }
+        sharePassword = v;
+        try { sessionStorage.setItem('share_pwd_' + token, v); } catch (e) {}
+        document.getElementById('pwd-err').textContent = '';
+        document.getElementById('loading').textContent = '正在加载文档…';
+        loadInfo();
+    };
+
+    window.goPage = async function(p) {
+        if (!totalPages) return;
+        if (isNaN(p) || p < 1) p = 1;
+        if (p > totalPages) p = totalPages;
+        currentPage = p;
+        document.getElementById('page-input').value = p;
+        document.getElementById('prev-btn').disabled = (p <= 1);
+        document.getElementById('next-btn').disabled = (p >= totalPages);
+        var img = document.getElementById('page-img');
+        var loading = document.getElementById('loading');
+        img.style.display = 'none';
+        loading.style.display = 'block';
+        loading.textContent = '正在加载第 ' + p + ' 页…';
+        try {
+            var resp = await fetch('/api/share/' + encodeURIComponent(token) + '/view?page=' + p, { headers: apiHeaders() });
+            if (!resp.ok) {
+                var err = await resp.json().catch(function() { return {}; });
+                if (resp.status === 401) {
+                    sharePassword = '';
+                    try { sessionStorage.removeItem('share_pwd_' + token); } catch (e) {}
+                    document.getElementById('pwd-overlay').classList.remove('hidden');
+                    loading.textContent = '等待输入访问密码…';
+                    return;
+                }
+                showError('无法显示页面', err.detail || ('错误 ' + resp.status));
+                return;
+            }
+            var blob = await resp.blob();
+            if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+            currentObjectUrl = URL.createObjectURL(blob);
+            img.src = currentObjectUrl;
+            img.style.display = 'block';
+            loading.style.display = 'none';
+            document.getElementById('viewer').scrollTop = 0;
+        } catch (e) {
+            showError('网络错误', '加载页面失败，请稍后重试');
+        }
+    };
+
+    document.addEventListener('keydown', function(e) {
+        if (e.target && e.target.id === 'pwd-input') return;
+        if (e.key === 'ArrowLeft') window.goPage(currentPage - 1);
+        if (e.key === 'ArrowRight') window.goPage(currentPage + 1);
+    });
+
+    loadInfo();
+})();
+</script>
+</body>
+</html>

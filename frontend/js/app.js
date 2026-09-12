@@ -1217,6 +1217,7 @@ function renderFileList(folders, documents, sortBy, sortOrder) {
             html += '<td class="col-actions admin-only">';
             html += '<button class="btn-action btn-move" onclick="showMoveDocModal(' + doc.id + ')" title="移动">📁</button>';
             html += '<button class="btn-action btn-move" onclick="showPermissionModal(\'document\', ' + doc.id + ', \'' + escapeHtml(doc.original_name).replace(/'/g, "\\'") + '\')" title="权限">🔐</button>';
+            html += '<button class="btn-action btn-share" onclick="showShareModal(' + doc.id + ', \'' + escapeHtml(doc.original_name).replace(/'/g, "\\'") + '\')" title="分享">🔗</button>';
             html += '<button class="btn-action btn-delete" onclick="deleteDocument(' + doc.id + ')" title="删除">🗑️</button>';
             html += '</td></tr>';
         }
@@ -1990,6 +1991,7 @@ function renderUsers(users) {
                     ${user.is_active ? '🚫' : '✅'}
                 </button>
                 <button class="btn-action btn-reset" onclick="resetPassword(${user.id})" title="重置密码">🔑</button>
+                <button class="btn-action btn-loginlink" onclick="showLoginLinkModal(${user.id}, '${escapeHtml(user.username)}')" title="生成登录链接">🔗</button>
                 ${user.username !== currentUser.username ? 
                     `<button class="btn-action btn-delete" onclick="deleteUser(${user.id})" title="删除">🗑️</button>` : 
                     ''
@@ -2007,7 +2009,9 @@ async function handleCreateUser(e) {
     const role = document.getElementById('new-role').value;
     
     if (!username || !password) { alert('请输入用户名和密码'); return; }
-    
+    var pwdErr = checkPwdStrength(password);
+    if (pwdErr) { alert(pwdErr + '\n（要求：' + PWD_RULE_HINT + '）'); return; }
+
     try {
         const response = await fetch(`${API_BASE}/register`, {
             credentials: 'include',
@@ -2061,11 +2065,12 @@ async function toggleUser(userId, currentStatus) {
 }
 
 async function resetPassword(userId) {
-    const newPassword = prompt('请输入新密码（至少6位）:');
+    const newPassword = prompt('请输入新密码（' + PWD_RULE_HINT + '）:');
     if (!newPassword) return;
-    
-    if (newPassword.length < 6) {
-        alert('密码长度至少6位');
+
+    var pwdErr = checkPwdStrength(newPassword);
+    if (pwdErr) {
+        alert(pwdErr + '\n（要求：' + PWD_RULE_HINT + '）');
         return;
     }
     
@@ -2124,7 +2129,8 @@ async function handleChangePassword(e) {
     
     if (!oldPassword || !newPassword || !confirmPassword) { alert('请填写所有字段'); return; }
     if (newPassword !== confirmPassword) { alert('两次输入的新密码不一致'); return; }
-    if (newPassword.length < 6) { alert('新密码长度至少6位'); return; }
+    var pwdErr = checkPwdStrength(newPassword);
+    if (pwdErr) { alert(pwdErr + '\n（要求：' + PWD_RULE_HINT + '）'); return; }
     
     try {
         const response = await fetch(`${API_BASE}/change-password`, {
@@ -2173,6 +2179,17 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// 密码复杂度：与后端 check_password_strength 保持一致 —— ≥8位，含数字、大小写字母、特殊字符
+function checkPwdStrength(pwd) {
+    if (!pwd || pwd.length < 8) return '密码长度不能少于 8 位';
+    if (!/[0-9]/.test(pwd)) return '密码必须包含数字';
+    if (!/[a-z]/.test(pwd)) return '密码必须包含小写字母';
+    if (!/[A-Z]/.test(pwd)) return '密码必须包含大写字母';
+    if (!/[^0-9a-zA-Z]/.test(pwd)) return '密码必须包含特殊字符';
+    return null;
+}
+var PWD_RULE_HINT = '至少8位，须含数字、大小写字母、特殊字符';
 
 function formatFileSize(bytes) {
     if (!bytes) return '0 B';

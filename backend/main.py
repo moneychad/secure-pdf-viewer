@@ -191,6 +191,32 @@ def init_db():
         duration_seconds INTEGER DEFAULT 0
     )''')
     
+    # 分享链接表（动态链接：签名token + 时效 + 可选密码；view_count仅统计）
+    c.execute('''CREATE TABLE IF NOT EXISTS share_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        document_id INTEGER NOT NULL,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        view_count INTEGER DEFAULT 0,
+        is_revoked INTEGER DEFAULT 0,
+        password_hash TEXT
+    )''')
+
+    # 平台登录链接表（免密动态登录：签名token + 时效 + 可吊销；use_count/last_used_at 统计）
+    c.execute('''CREATE TABLE IF NOT EXISTS login_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        use_count INTEGER DEFAULT 0,
+        last_used_at TIMESTAMP,
+        is_revoked INTEGER DEFAULT 0
+    )''')
+
     # 设备指纹表
 
     # 审计日志表
@@ -775,10 +801,14 @@ async def login(user: UserLogin, request: Request):
 async def register(user: UserCreate, token_data: dict = Depends(verify_token)):
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以创建用户")
-    
+
+    pwd_err = check_password_strength(user.password)
+    if pwd_err:
+        raise HTTPException(status_code=400, detail=pwd_err)
+
     conn = get_db()
     c = conn.cursor()
-    
+
     password_hash = hash_password(user.password)
     try:
         c.execute("INSERT INTO users (username, password_hash, role, group_id, is_active) VALUES (?, ?, ?, ?, ?)",
@@ -802,7 +832,12 @@ async def change_password(passwords: ChangePassword, token_data: dict = Depends(
     if not result or not verify_password(passwords.old_password, result["password_hash"]):
         conn.close()
         raise HTTPException(status_code=400, detail="旧密码错误")
-    
+
+    pwd_err = check_password_strength(passwords.new_password)
+    if pwd_err:
+        conn.close()
+        raise HTTPException(status_code=400, detail=pwd_err)
+
     new_hash = hash_password(passwords.new_password)
     c.execute("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
               (new_hash, token_data["username"]))
@@ -1611,6 +1646,473 @@ async def upload_directory_single(
     conn.close()
     return {"success": True, "filename": filename, "message": f"上传成功: {filename}"}
 
+# ==================== 动态分享链接（签名token/时效/次数限制/可选密码） ====================
+import secrets
+from datetime import timedelta
+from fastapi.responses import Response
+
+
+def render_page_jpeg(doc_id: int, doc_filename: str, file_path: Path, page: int, dpi: int, watermark_name: str):
+    """渲染PDF指定页为带水印JPEG（分钟级缓存）。返回 (img_bytes, resp_headers)；页码无效抛HTTPException。"""
+    import pymupdf
+    from PIL import Image, ImageDraw, ImageFont
+    import io
+
+    cache_dir = RENDER_CACHE_DIR
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+    try:
+        file_mtime = file_path.stat().st_mtime
+    except Exception:
+        file_mtime = 0
+    cache_key = hashlib.sha256(
+        f"{doc_id}|{doc_filename}|{file_mtime}|{page}|{dpi}|{MAX_RENDER_DIM}|{watermark_name}|{now_str}".encode("utf-8")
+    ).hexdigest()
+    cache_file = cache_dir / f"{cache_key}.jpg"
+    resp_headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if cache_file.exists():
+        return cache_file.read_bytes(), resp_headers
+
+    pdf = pymupdf.open(str(file_path))
+    if page < 1 or page > len(pdf):
+        pdf.close()
+        raise HTTPException(status_code=400, detail=f"页码无效，文档共 {len(pdf)} 页")
+    pdf_page = pdf[page - 1]
+    # 超大扫描页限制最长边，避免渲染成超大图导致传输/渲染过慢
+    page_rect = pdf_page.rect
+    zoom = dpi / 72
+    if page_rect.width > 0 and page_rect.height > 0:
+        zoom = min(zoom, MAX_RENDER_DIM / page_rect.width, MAX_RENDER_DIM / page_rect.height)
+    mat = pymupdf.Matrix(zoom, zoom)
+    pix = pdf_page.get_pixmap(matrix=mat, alpha=False)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    pdf.close()
+    # 叠加水印（时间精确到分钟，保证同一分钟内缓存可复用）
+    draw = ImageDraw.Draw(img)
+    wm_text1 = f"{watermark_name} | {now_str}"
+    wm_text2 = "内部资料，严禁外泄"
+    font_size = max(16, int(dpi * 0.12))
+    cn_font_paths = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+    ]
+    font_path = None
+    for fp in cn_font_paths:
+        if os.path.exists(fp):
+            font_path = fp
+            break
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, font_size)
+            font_small = ImageFont.truetype(font_path, int(font_size * 0.7))
+        else:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", int(font_size * 0.7))
+    except Exception:
+        font = ImageFont.load_default()
+        font_small = font
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    watermark_color = (200, 200, 200, 60)  # 浅灰半透明
+    try:
+        bbox1 = draw.textbbox((0, 0), wm_text1, font=font)
+        text_w = bbox1[2] - bbox1[0]
+    except Exception:
+        text_w = len(wm_text1) * font_size
+    step_x = max(text_w + 100, 300)
+    step_y = int(font_size * 5)
+    for y in range(0, img.height, step_y):
+        for x in range(0, img.width, step_x):
+            overlay_draw.text((x, y), wm_text1, fill=watermark_color, font=font)
+            overlay_draw.text((x, y + font_size + 4), wm_text2, fill=watermark_color, font=font_small)
+    img = img.convert("RGBA")
+    img = Image.alpha_composite(img, overlay)
+    img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=88)
+    img_bytes = buf.getvalue()
+    try:
+        cache_file.write_bytes(img_bytes)
+        cleanup_render_cache()
+    except Exception:
+        pass
+    return img_bytes, resp_headers
+
+
+class ShareLinkCreate(BaseModel):
+    expires_hours: int = 24
+    password: Optional[str] = None
+
+
+def check_password_strength(password: str, label: str = "密码") -> Optional[str]:
+    """密码复杂度：≥8位，必须含数字、大小写字母、特殊字符。合格返回None，否则返回错误信息。"""
+    if len(password) < 8:
+        return f"{label}长度不能少于 8 位"
+    if not any(ch.isdigit() for ch in password):
+        return f"{label}必须包含数字"
+    if not any(ch.islower() for ch in password):
+        return f"{label}必须包含小写字母"
+    if not any(ch.isupper() for ch in password):
+        return f"{label}必须包含大写字母"
+    if not any(not ch.isalnum() for ch in password):
+        return f"{label}必须包含特殊字符"
+    return None
+
+
+def _validate_share_link(token: str, request: Request):
+    """校验分享链接：存在/未吊销/未过期/密码正确。成功返回 (link, conn)，失败抛HTTPException。"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM share_links WHERE token = ?", (token,))
+    link = c.fetchone()
+    if not link:
+        conn.close()
+        raise HTTPException(status_code=404, detail="分享链接不存在")
+    if link["is_revoked"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="分享链接已被吊销")
+    try:
+        expires_at = datetime.strptime(link["expires_at"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        conn.close()
+        raise HTTPException(status_code=500, detail="分享链接数据异常")
+    if datetime.utcnow() > expires_at:
+        conn.close()
+        raise HTTPException(status_code=403, detail="分享链接已过期")
+    if link["password_hash"]:
+        pwd = request.headers.get("X-Share-Password", "")
+        if not pwd or not verify_password(pwd, link["password_hash"]):
+            conn.close()
+            raise HTTPException(status_code=401, detail="需要有效的访问密码")
+    return link, conn
+
+
+@app.post("/api/documents/{doc_id}/share-links")
+async def create_share_link(doc_id: int, data: ShareLinkCreate, request: Request, token_data: dict = Depends(verify_token)):
+    """创建文档分享链接（仅管理员）。默认24小时有效，可选访问密码；有效期内不限打开次数。"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以创建分享链接")
+    if data.expires_hours < 1 or data.expires_hours > 24 * 30:
+        raise HTTPException(status_code=400, detail="有效期需在 1 小时到 30 天之间")
+    if data.password:
+        pwd_err = check_password_strength(data.password, "访问密码")
+        if pwd_err:
+            raise HTTPException(status_code=400, detail=pwd_err)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, original_name FROM documents WHERE id = ? AND is_active = 1", (doc_id,))
+    doc = c.fetchone()
+    if not doc:
+        conn.close()
+        raise HTTPException(status_code=404, detail="文档不存在")
+    token = secrets.token_urlsafe(24)
+    expires_at = (datetime.utcnow() + timedelta(hours=data.expires_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    password_hash = hash_password(data.password) if data.password else None
+    c.execute("""INSERT INTO share_links (token, document_id, created_by, expires_at, password_hash)
+                 VALUES (?, ?, ?, ?, ?)""",
+              (token, doc_id, token_data.get("user_id"), expires_at, password_hash))
+    link_id = c.lastrowid
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, token_data.get("user_id"), token_data.get("username"), "create_share_link",
+              "document", doc_id, doc["original_name"],
+              f"有效期{data.expires_hours}小时, 密码:{'有' if password_hash else '无'}",
+              client_ip)
+    conn.commit()
+    conn.close()
+    return {"id": link_id, "token": token, "url": f"/share.html?token={token}",
+            "expires_at": expires_at, "has_password": bool(password_hash)}
+
+
+@app.get("/api/share-links")
+async def list_share_links(document_id: Optional[int] = None, token_data: dict = Depends(verify_token)):
+    """分享链接列表（仅管理员）"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看分享链接")
+    conn = get_db()
+    c = conn.cursor()
+    sql = """SELECT s.*, d.original_name AS document_name, u.username AS creator_name
+             FROM share_links s
+             LEFT JOIN documents d ON s.document_id = d.id
+             LEFT JOIN users u ON s.created_by = u.id"""
+    params = []
+    if document_id:
+        sql += " WHERE s.document_id = ?"
+        params.append(document_id)
+    sql += " ORDER BY s.id DESC LIMIT 200"
+    c.execute(sql, params)
+    rows = c.fetchall()
+    conn.close()
+    now = datetime.utcnow()
+    links = []
+    for r in rows:
+        try:
+            exp = datetime.strptime(r["expires_at"], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            exp = now
+        if r["is_revoked"]:
+            status = "revoked"
+        elif now > exp:
+            status = "expired"
+        else:
+            status = "active"
+        links.append({
+            "id": r["id"], "token": r["token"], "document_id": r["document_id"],
+            "document_name": r["document_name"] or "(文档已删除)",
+            "creator_name": r["creator_name"] or "-",
+            "created_at": r["created_at"], "expires_at": r["expires_at"],
+            "view_count": r["view_count"],
+            "has_password": bool(r["password_hash"]), "status": status,
+        })
+    return {"links": links}
+
+
+@app.post("/api/share-links/{link_id}/revoke")
+async def revoke_share_link(link_id: int, request: Request, token_data: dict = Depends(verify_token)):
+    """吊销分享链接（仅管理员），立即生效"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以吊销分享链接")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM share_links WHERE id = ?", (link_id,))
+    link = c.fetchone()
+    if not link:
+        conn.close()
+        raise HTTPException(status_code=404, detail="分享链接不存在")
+    c.execute("UPDATE share_links SET is_revoked = 1 WHERE id = ?", (link_id,))
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, token_data.get("user_id"), token_data.get("username"), "revoke_share_link",
+              "document", link["document_id"], None, f"token={link['token'][:8]}…", client_ip)
+    conn.commit()
+    conn.close()
+    return {"message": "分享链接已吊销"}
+
+
+@app.get("/api/share/{token}/pages")
+async def share_document_pages(token: str, request: Request):
+    """公开接口：分享链接打开文档（计一次访问）。无需登录，凭token+可选密码访问。"""
+    link, conn = _validate_share_link(token, request)
+    c = conn.cursor()
+    c.execute("SELECT filename, original_name FROM documents WHERE id = ? AND is_active = 1", (link["document_id"],))
+    doc = c.fetchone()
+    if not doc:
+        conn.close()
+        raise HTTPException(status_code=404, detail="文档不存在或已删除")
+    file_path = UPLOAD_DIR / doc["filename"]
+    if not file_path.exists():
+        conn.close()
+        raise HTTPException(status_code=404, detail="文件不存在")
+    # 计一次"打开"
+    c.execute("UPDATE share_links SET view_count = view_count + 1 WHERE id = ?", (link["id"],))
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    c.execute("""INSERT INTO access_logs (user_id, username, document_id, action, ip_address, user_agent)
+                 VALUES (?, ?, ?, ?, ?, ?)""",
+              (None, f"访客-{token[:8]}", link["document_id"], "share_view", client_ip,
+               request.headers.get("User-Agent", "")[:200]))
+    conn.commit()
+    new_count = link["view_count"] + 1
+    conn.close()
+    try:
+        import pymupdf
+        pdf = pymupdf.open(str(file_path))
+        total = len(pdf)
+        pdf.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文档失败: {str(e)}")
+    return {"total_pages": total, "document_name": doc["original_name"],
+            "expires_at": link["expires_at"], "view_count": new_count}
+
+
+@app.get("/api/share/{token}/view")
+async def share_view_document(token: str, request: Request, page: int = 1, dpi: int = 150):
+    """公开接口：分享链接查看文档指定页（每次都校验时效/密码，到期即失效）"""
+    link, conn = _validate_share_link(token, request)
+    c = conn.cursor()
+    c.execute("SELECT filename, original_name FROM documents WHERE id = ? AND is_active = 1", (link["document_id"],))
+    doc = c.fetchone()
+    conn.close()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在或已删除")
+    file_path = UPLOAD_DIR / doc["filename"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    try:
+        img_bytes, resp_headers = render_page_jpeg(
+            link["document_id"], doc["filename"], file_path, page, dpi, f"访客-{token[:8]}")
+        return Response(content=img_bytes, media_type="image/jpeg", headers=resp_headers)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"渲染文档失败: {str(e)}")
+
+
+# ==================== 平台登录链接（免密动态登录：签名token/时效/可吊销） ====================
+class LoginLinkCreate(BaseModel):
+    expires_hours: int = 24
+
+
+@app.post("/api/users/{user_id}/login-links")
+async def create_login_link(user_id: int, data: LoginLinkCreate, request: Request, token_data: dict = Depends(verify_token)):
+    """为指定用户生成平台登录链接（仅管理员）。访客打开链接即以此账号身份登录平台，权限/水印跟随该账号。"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以创建登录链接")
+    if data.expires_hours < 1 or data.expires_hours > 24 * 30:
+        raise HTTPException(status_code=400, detail="有效期需在 1 小时到 30 天之间")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, username, role, is_active FROM users WHERE id = ?", (user_id,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user["role"] == "admin":
+        conn.close()
+        raise HTTPException(status_code=400, detail="不能为管理员账号生成登录链接（安全风险）")
+    if not user["is_active"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="该账号已停用，无法生成登录链接")
+    token = secrets.token_urlsafe(24)
+    expires_at = (datetime.utcnow() + timedelta(hours=data.expires_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT INTO login_links (token, user_id, created_by, expires_at) VALUES (?, ?, ?, ?)",
+              (token, user_id, token_data.get("user_id"), expires_at))
+    link_id = c.lastrowid
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, token_data.get("user_id"), token_data.get("username"), "create_login_link",
+              "user", user_id, user["username"], f"有效期{data.expires_hours}小时", client_ip)
+    conn.commit()
+    conn.close()
+    return {"id": link_id, "token": token, "url": f"/login.html?token={token}", "expires_at": expires_at}
+
+
+class LoginLinkUse(BaseModel):
+    token: str
+
+
+@app.post("/api/login-link")
+async def use_login_link(data: LoginLinkUse, request: Request):
+    """公开接口：凭登录链接token免密登录平台。会话有效期跟随链接有效期（链接到期会话同步失效）。"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM login_links WHERE token = ?", (data.token,))
+    link = c.fetchone()
+    if not link:
+        conn.close()
+        raise HTTPException(status_code=404, detail="登录链接不存在")
+    if link["is_revoked"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="登录链接已被吊销")
+    try:
+        expires_at = datetime.strptime(link["expires_at"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        conn.close()
+        raise HTTPException(status_code=500, detail="登录链接数据异常")
+    now = datetime.utcnow()
+    if now > expires_at:
+        conn.close()
+        raise HTTPException(status_code=403, detail="登录链接已过期")
+    c.execute("SELECT id, username, role, is_active FROM users WHERE id = ?", (link["user_id"],))
+    user = c.fetchone()
+    if not user or not user["is_active"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="关联账号不存在或已停用")
+    remaining = int((expires_at - now).total_seconds())
+    session_seconds = min(86400, max(60, remaining))
+    c.execute("UPDATE login_links SET use_count = use_count + 1, last_used_at = ? WHERE id = ?",
+              (now.strftime("%Y-%m-%d %H:%M:%S"), link["id"]))
+    c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, user["id"], user["username"], "LOGIN_VIA_LINK", "user", user["id"], user["username"],
+              f"通过登录链接登录(link_id={link['id']})", client_ip)
+    conn.commit()
+    conn.close()
+
+    payload = {
+        "username": user["username"],
+        "role": user["role"],
+        "user_id": user["id"],
+        "exp": datetime.now(timezone.utc).timestamp() + session_seconds
+    }
+    token_jwt = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content={
+        "token": token_jwt,
+        "user": {"id": user["id"], "username": user["username"], "role": user["role"]},
+        "session_seconds": session_seconds
+    })
+    response.set_cookie(
+        key="auth_token",
+        value=token_jwt,
+        httponly=True,
+        secure=False,  # 生产环境（HTTPS）应改为 True
+        samesite="lax",
+        max_age=session_seconds
+    )
+    return response
+
+
+@app.get("/api/login-links")
+async def list_login_links(token_data: dict = Depends(verify_token)):
+    """登录链接列表（仅管理员）"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以查看登录链接")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT l.*, u.username AS target_username, cu.username AS creator_name
+                 FROM login_links l
+                 LEFT JOIN users u ON l.user_id = u.id
+                 LEFT JOIN users cu ON l.created_by = cu.id
+                 ORDER BY l.id DESC LIMIT 200""")
+    rows = c.fetchall()
+    conn.close()
+    now = datetime.utcnow()
+    links = []
+    for r in rows:
+        try:
+            exp = datetime.strptime(r["expires_at"], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            exp = now
+        if r["is_revoked"]:
+            status = "revoked"
+        elif now > exp:
+            status = "expired"
+        else:
+            status = "active"
+        links.append({
+            "id": r["id"], "token": r["token"], "user_id": r["user_id"],
+            "target_username": r["target_username"] or "(账号已删除)",
+            "creator_name": r["creator_name"] or "-",
+            "created_at": r["created_at"], "expires_at": r["expires_at"],
+            "use_count": r["use_count"], "last_used_at": r["last_used_at"],
+            "status": status,
+        })
+    return {"links": links}
+
+
+@app.post("/api/login-links/{link_id}/revoke")
+async def revoke_login_link(link_id: int, request: Request, token_data: dict = Depends(verify_token)):
+    """吊销登录链接（仅管理员），立即生效"""
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以吊销登录链接")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM login_links WHERE id = ?", (link_id,))
+    link = c.fetchone()
+    if not link:
+        conn.close()
+        raise HTTPException(status_code=404, detail="登录链接不存在")
+    c.execute("UPDATE login_links SET is_revoked = 1 WHERE id = ?", (link_id,))
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    log_audit(conn, token_data.get("user_id"), token_data.get("username"), "revoke_login_link",
+              "user", link["user_id"], None, f"token={link['token'][:8]}…", client_ip)
+    conn.commit()
+    conn.close()
+    return {"message": "登录链接已吊销"}
+
+
 @app.get("/api/documents/{doc_id}/pages")
 async def get_document_pages(doc_id: int, token_data: dict = Depends(verify_token)):
     """获取文档总页数（服务端渲染模式）"""
@@ -1672,109 +2174,8 @@ async def view_document(
     conn.close()
 
     try:
-        import pymupdf
-        from datetime import datetime
-        from PIL import Image, ImageDraw, ImageFont
-        import io
-        import os
-        import hashlib
-        from fastapi.responses import Response
-
-        # 渲染结果缓存：按 文档/页码/DPI/用户/分钟 缓存最终 JPEG，重复翻页直接读缓存
-        cache_dir = RENDER_CACHE_DIR
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-        try:
-            file_mtime = file_path.stat().st_mtime
-        except Exception:
-            file_mtime = 0
-        cache_key = hashlib.sha256(
-            f"{doc_id}|{doc['filename']}|{file_mtime}|{page}|{dpi}|{MAX_RENDER_DIM}|{username}|{now_str}".encode("utf-8")
-        ).hexdigest()
-        cache_file = cache_dir / f"{cache_key}.jpg"
-        resp_headers = {
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "X-Content-Type-Options": "nosniff",
-        }
-        if cache_file.exists():
-            return Response(content=cache_file.read_bytes(), media_type="image/jpeg", headers=resp_headers)
-
-        pdf = pymupdf.open(str(file_path))
-        if page < 1 or page > len(pdf):
-            pdf.close()
-            raise HTTPException(status_code=400, detail=f"页码无效，文档共 {len(pdf)} 页")
-        pdf_page = pdf[page - 1]
-        # 渲染为像素图；超大扫描页限制最长边，避免 dpi=150 渲染成 5000x7000 导致公网传输/渲染过慢
-        page_rect = pdf_page.rect
-        zoom = dpi / 72
-        if page_rect.width > 0 and page_rect.height > 0:
-            zoom = min(zoom, MAX_RENDER_DIM / page_rect.width, MAX_RENDER_DIM / page_rect.height)
-        mat = pymupdf.Matrix(zoom, zoom)
-        pix = pdf_page.get_pixmap(matrix=mat, alpha=False)
-        # 用 pymupdf 的 Pixmap 转为 PIL Image 叠加水印
-        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        pdf.close()
-        # 叠加水印（时间精确到分钟，保证同一分钟内缓存可复用）
-        draw = ImageDraw.Draw(img)
-        wm_text1 = f"{username} | {now_str}"
-        wm_text2 = "内部资料，严禁外泄"
-        # 水印字体大小随 DPI 缩放
-        font_size = max(16, int(dpi * 0.12))
-        # 优先使用中文字体
-        cn_font_paths = [
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-            "/usr/share/fonts/truetype/arphic/uming.ttc",
-        ]
-        font_path = None
-        for fp in cn_font_paths:
-            if os.path.exists(fp):
-                font_path = fp
-                break
-        try:
-            if font_path:
-                font = ImageFont.truetype(font_path, font_size)
-                font_small = ImageFont.truetype(font_path, int(font_size * 0.7))
-            else:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", int(font_size * 0.7))
-        except Exception:
-            font = ImageFont.load_default()
-            font_small = font
-        # 半透明水印：在图片上多处绘制
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-        watermark_color = (200, 200, 200, 60)  # 浅灰半透明
-        # 计算水印间距
-        try:
-            bbox1 = draw.textbbox((0, 0), wm_text1, font=font)
-            text_w = bbox1[2] - bbox1[0]
-        except Exception:
-            text_w = len(wm_text1) * font_size
-        step_x = max(text_w + 100, 300)
-        step_y = int(font_size * 5)
-        for y in range(0, img.height, step_y):
-            for x in range(0, img.width, step_x):
-                overlay_draw.text((x, y), wm_text1, fill=watermark_color, font=font)
-                overlay_draw.text((x, y + font_size + 4), wm_text2, fill=watermark_color, font=font_small)
-        img = img.convert("RGBA")
-        img = Image.alpha_composite(img, overlay)
-        img = img.convert("RGB")
-        # 输出 JPEG（比 PNG 编码更快、体积更小）
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=88)
-        img_bytes = buf.getvalue()
-        try:
-            cache_file.write_bytes(img_bytes)
-            cleanup_render_cache()
-        except Exception:
-            pass
-        return Response(
-            content=img_bytes,
-            media_type="image/jpeg",
-            headers=resp_headers
-        )
+        img_bytes, resp_headers = render_page_jpeg(doc_id, doc["filename"], file_path, page, dpi, username)
+        return Response(content=img_bytes, media_type="image/jpeg", headers=resp_headers)
     except HTTPException:
         raise
     except Exception as e:
@@ -2446,6 +2847,10 @@ async def update_user(user_id: int, user_update: UserUpdate, token_data: dict = 
     if user_update.password is not None:
         if "password_hash" not in ALLOWED_USER_UPDATE_FIELDS:
             raise HTTPException(status_code=400, detail="非法字段")
+        pwd_err = check_password_strength(user_update.password)
+        if pwd_err:
+            conn.close()
+            raise HTTPException(status_code=400, detail=pwd_err)
         updates.append("password_hash = ?")
         params.append(hash_password(user_update.password))
     
@@ -2497,7 +2902,7 @@ async def delete_user(user_id: int, token_data: dict = Depends(verify_token)):
     # 记录审计日志
     log_audit(conn, token_data.get("user_id"), token_data["username"], 
               "DELETE_USER", "user", user_id, user["username"], 
-              f"删除用户 {user[username]}", None)
+              f"删除用户 {user['username']}", None)
     
     c.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
