@@ -2003,11 +2003,16 @@ async def create_login_link(user_id: int, data: LoginLinkCreate, request: Reques
 
 class LoginLinkUse(BaseModel):
     token: str
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 @app.post("/api/login-link")
 async def use_login_link(data: LoginLinkUse, request: Request):
-    """公开接口：凭登录链接token免密登录平台。会话有效期跟随链接有效期（链接到期会话同步失效）。"""
+    """登录链接两段式验证：
+    1) 仅带token：校验链接有效性，返回绑定账号用户名（前端显示登录表单）
+    2) 带token+用户名+密码：链接有效 且 用户名匹配绑定账号 且 密码正确 才签发会话（双因素）
+    会话有效期跟随链接有效期（链接到期会话同步失效）。"""
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM login_links WHERE token = ?", (data.token,))
@@ -2027,21 +2032,42 @@ async def use_login_link(data: LoginLinkUse, request: Request):
     if now > expires_at:
         conn.close()
         raise HTTPException(status_code=403, detail="登录链接已过期")
-    c.execute("SELECT id, username, role, is_active FROM users WHERE id = ?", (link["user_id"],))
+    c.execute("SELECT id, username, role, is_active, password_hash FROM users WHERE id = ?", (link["user_id"],))
     user = c.fetchone()
     if not user or not user["is_active"]:
         conn.close()
         raise HTTPException(status_code=403, detail="关联账号不存在或已停用")
-    remaining = int((expires_at - now).total_seconds())
-    session_seconds = min(86400, max(60, remaining))
+
+    # 第一阶段：仅校验链接，告知前端需要输入凭据
+    if data.username is None and data.password is None:
+        conn.close()
+        return {"status": "require_credentials", "username": user["username"],
+                "expires_at": link["expires_at"]}
+
+    # 第二阶段：校验凭据（含登录频率限制防爆破）
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    allowed, remaining, lockout_seconds = check_login_rate_limit(client_ip)
+    if not allowed:
+        conn.close()
+        raise HTTPException(status_code=429,
+                            detail=f"登录尝试次数过多，请 {lockout_seconds // 60} 分钟后再试")
+    creds_ok = (data.username or "") == user["username"] and \
+               bool(data.password) and verify_password(data.password, user["password_hash"])
+    if not creds_ok:
+        conn.close()
+        record_login_attempt(client_ip, success=False)
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    remaining_secs = int((expires_at - now).total_seconds())
+    session_seconds = min(86400, max(60, remaining_secs))
     c.execute("UPDATE login_links SET use_count = use_count + 1, last_used_at = ? WHERE id = ?",
               (now.strftime("%Y-%m-%d %H:%M:%S"), link["id"]))
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
-    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
     log_audit(conn, user["id"], user["username"], "LOGIN_VIA_LINK", "user", user["id"], user["username"],
-              f"通过登录链接登录(link_id={link['id']})", client_ip)
+              f"通过登录链接+密码验证登录(link_id={link['id']})", client_ip)
     conn.commit()
     conn.close()
+    record_login_attempt(client_ip, success=True)
 
     payload = {
         "username": user["username"],

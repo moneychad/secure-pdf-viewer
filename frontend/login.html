@@ -7,7 +7,7 @@
     <title>登录 - AUV-X Data Room</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; align-items: center; justify-content: center; }
+        body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
         .card { background: #fff; border-radius: 12px; padding: 40px 44px; width: 380px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
         .card h1 { font-size: 20px; color: #2c3e50; margin-bottom: 8px; }
         .card .sub { font-size: 13px; color: #7f8c8d; margin-bottom: 24px; }
@@ -19,6 +19,17 @@
         .error-box h2 { font-size: 17px; color: #2c3e50; margin-bottom: 8px; }
         .error-box p { font-size: 13px; color: #e74c3c; line-height: 1.6; }
         .error-box .tip { font-size: 12px; color: #95a5a6; margin-top: 16px; }
+        /* 登录表单 */
+        .login-box { display: none; text-align: left; }
+        .login-box .tip { font-size: 12px; color: #7f8c8d; margin-bottom: 18px; text-align: center; line-height: 1.6; }
+        .login-box label { display: block; font-size: 13px; color: #2c3e50; margin-bottom: 6px; }
+        .login-box input { width: 100%; padding: 10px 12px; border: 1px solid #dcdde1; border-radius: 6px; font-size: 14px; margin-bottom: 16px; }
+        .login-box input:focus { outline: none; border-color: #667eea; }
+        .login-box button { width: 100%; padding: 11px; background: #4a6fa5; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+        .login-box button:hover { background: #3d5d8a; }
+        .login-box button:disabled { background: #95a5a6; cursor: not-allowed; }
+        .login-box .err { color: #e74c3c; font-size: 12px; margin-top: 10px; min-height: 16px; text-align: center; }
+        .expire-note { font-size: 11px; color: #95a5a6; margin-top: 14px; text-align: center; }
     </style>
 </head>
 <body>
@@ -27,6 +38,22 @@
         <div class="sub">安全文档共享平台</div>
         <div class="spinner"></div>
         <div class="status" id="status-text">正在验证登录链接…</div>
+    </div>
+
+    <!-- 凭据表单：链接有效后显示 -->
+    <div class="card login-box" id="login-card">
+        <h1 style="text-align:center;">🔒 AUV-X Data Room</h1>
+        <div class="sub" style="text-align:center;">安全文档共享平台</div>
+        <div class="tip">登录链接验证通过。<br>请输入账号用户名和密码完成登录。</div>
+        <form id="link-login-form">
+            <label>用户名</label>
+            <input type="text" id="link-username" autocomplete="username" required>
+            <label>密码</label>
+            <input type="password" id="link-password" autocomplete="current-password" required>
+            <button type="submit" id="link-login-btn">登 录</button>
+            <div class="err" id="login-err"></div>
+        </form>
+        <div class="expire-note" id="expire-note"></div>
     </div>
 
     <div class="card error-box" id="error-card">
@@ -42,9 +69,16 @@
 
     function showError(msg) {
         document.getElementById('loading-card').style.display = 'none';
+        document.getElementById('login-card').style.display = 'none';
         var card = document.getElementById('error-card');
         card.style.display = 'block';
         document.getElementById('error-msg').textContent = msg;
+    }
+
+    function fmtBeijing(utcStr) {
+        var d = new Date((utcStr || '').replace(' ', 'T') + 'Z');
+        if (isNaN(d.getTime())) return utcStr || '';
+        return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
     }
 
     if (!token) {
@@ -52,6 +86,7 @@
         return;
     }
 
+    // 第一阶段：校验链接有效性
     fetch('/api/login-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -59,19 +94,52 @@
         body: JSON.stringify({ token: token })
     }).then(function(resp) {
         if (!resp.ok) {
-            return resp.json().then(function(d) {
-                throw new Error(d.detail || ('错误 ' + resp.status));
-            });
+            return resp.json().then(function(d) { throw new Error(d.detail || ('错误 ' + resp.status)); });
         }
         return resp.json();
     }).then(function(data) {
-        document.getElementById('status-text').textContent =
-            '验证成功，正在以「' + data.user.username + '」身份进入平台…';
-        // 清理地址栏中的 token，避免二次传播
-        try { history.replaceState(null, '', '/login.html'); } catch (e) {}
-        setTimeout(function() { location.href = '/'; }, 600);
+        // 链接有效 → 显示凭据表单
+        document.getElementById('loading-card').style.display = 'none';
+        document.getElementById('login-card').style.display = 'block';
+        document.getElementById('link-username').value = data.username || '';
+        document.getElementById('expire-note').textContent = '本链接有效期至 ' + fmtBeijing(data.expires_at) + '（北京时间）';
+        document.getElementById('link-password').focus();
     }).catch(function(e) {
         showError(e.message || '网络错误，请稍后重试');
+    });
+
+    // 第二阶段：提交凭据
+    document.getElementById('link-login-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var btn = document.getElementById('link-login-btn');
+        var errEl = document.getElementById('login-err');
+        errEl.textContent = '';
+        btn.disabled = true;
+        btn.textContent = '验证中…';
+        fetch('/api/login-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                token: token,
+                username: document.getElementById('link-username').value.trim(),
+                password: document.getElementById('link-password').value
+            })
+        }).then(function(resp) {
+            if (!resp.ok) {
+                return resp.json().then(function(d) { throw new Error(d.detail || ('错误 ' + resp.status)); });
+            }
+            return resp.json();
+        }).then(function(data) {
+            btn.textContent = '✓ 验证成功，正在进入…';
+            // 清理地址栏中的 token，避免二次传播
+            try { history.replaceState(null, '', '/login.html'); } catch (e) {}
+            setTimeout(function() { location.href = '/'; }, 600);
+        }).catch(function(e2) {
+            errEl.textContent = e2.message || '网络错误，请重试';
+            btn.disabled = false;
+            btn.textContent = '登 录';
+        });
     });
 })();
 </script>

@@ -46,6 +46,7 @@ async function createLoginLink() {
             document.getElementById('login-link-url').value = fullLinkUrl(data.url);
             document.getElementById('login-link-info').innerHTML =
                 '有效期至：' + formatDate(data.expires_at) + '（北京时间）<br>' +
+                '访客打开链接后<strong>仍需输入该账号的用户名和密码</strong>才能登录；<br>' +
                 '有效期内不限使用次数；可随时在「登录链接管理」中吊销，吊销后立即无法登录。';
             document.getElementById('login-link-result').style.display = 'block';
             document.getElementById('login-link-gen-btn').style.display = 'none';
