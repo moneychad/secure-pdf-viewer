@@ -2224,3 +2224,24 @@ body:not(.is-admin) .admin-only {
     margin: 0 auto;
 }
 @keyframes bootspin { to { transform: rotate(360deg); } }
+
+/* ==================== 移动端适配 (v7.59) ==================== */
+@media (max-width: 768px) {
+    .modal-content {
+        min-width: 0 !important;
+        width: 94vw;
+        max-width: 94vw !important;
+        padding: 20px;
+        max-height: 86vh;
+        overflow-y: auto;
+    }
+    .agreement-modal-overlay .agreement-modal-content {
+        min-width: 0;
+        width: 92vw;
+    }
+    .share-links-table th,
+    .share-links-table td {
+        padding: 6px 8px;
+        font-size: 11px;
+    }
+}

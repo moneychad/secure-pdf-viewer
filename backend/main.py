@@ -219,7 +219,17 @@ def init_db():
         is_revoked INTEGER DEFAULT 0
     )''')
 
-    # 设备指纹表
+    # 设备指纹表（定义在下方237行）
+    # 协议签署记录表（补充建表，之前漏了导致协议上报500）
+    c.execute('''CREATE TABLE IF NOT EXISTS agreement_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        action TEXT,
+        agreed INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ip_address TEXT,
+        user_agent TEXT
+    )''')
 
     # 审计日志表
     c.execute("""CREATE TABLE IF NOT EXISTS audit_logs (
