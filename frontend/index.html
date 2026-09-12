@@ -4,12 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AUV-X Data Room</title>
-    <link rel="stylesheet" href="/css/style.css?v=7.54">
+    <link rel="stylesheet" href="/css/style.css?v=7.55">
 </head>
 <body>
     <div id="app">
+        <!-- 启动加载页（会话校验期间显示，避免登录框一闪而过） -->
+        <div id="boot-splash">
+            <div class="boot-splash-inner">
+                <div class="boot-splash-brand">🔒 AUV-X Data Room</div>
+                <div class="boot-splash-spinner"></div>
+            </div>
+        </div>
         <!-- 登录页面 -->
-        <div id="login-page" class="page">
+        <div id="login-page" class="page hidden">
             <div class="login-container">
                 <h1 style="text-align:center;margin-bottom:24px;color:#333;font-size:22px">AUV-X Data Room</h1>
                 <form id="login-form">
@@ -479,12 +486,17 @@
             <input type="hidden" id="login-link-user-id">
             <div class="form-group">
                 <label>有效期（过期后链接失效，已登录会话同步失效）</label>
-                <select id="login-link-expires">
+                <select id="login-link-expires" onchange="toggleLoginLinkExpiresCustom()">
                     <option value="1">1 小时</option>
                     <option value="24" selected>24 小时（默认）</option>
                     <option value="72">3 天</option>
                     <option value="168">7 天</option>
+                    <option value="other">其他（自定义天数）</option>
                 </select>
+                <div id="login-link-expires-custom-row" style="display:none;margin-top:8px;align-items:center;gap:8px;">
+                    <input type="number" id="login-link-expires-custom" min="1" max="30" step="1" placeholder="请输入整数" style="flex:1;">
+                    <span style="font-size:14px;color:#2c3e50;white-space:nowrap;font-weight:600;">天</span>
+                </div>
             </div>
             <div id="login-link-result" style="display:none;">
                 <div class="form-group">
@@ -672,12 +684,12 @@
     </div>
 
     <script src="/js/fingerprint.js"></script>
-    <script src="/js/app.js?v=7.54"></script>
-    <script src="/js/groups.js?v=7.54"></script>
-    <script src="/js/extend.js?v=7.54"></script>
-    <script src="/js/permission.js?v=7.54"></script>
-    <script src="/js/share.js?v=7.54"></script>
-    <script src="/js/loginlink.js?v=7.54"></script>
+    <script src="/js/app.js?v=7.55"></script>
+    <script src="/js/groups.js?v=7.55"></script>
+    <script src="/js/extend.js?v=7.55"></script>
+    <script src="/js/permission.js?v=7.55"></script>
+    <script src="/js/share.js?v=7.55"></script>
+    <script src="/js/loginlink.js?v=7.55"></script>
 
     <!-- 上传文档弹窗 -->
     <!-- 上传目录弹窗 -->

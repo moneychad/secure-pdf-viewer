@@ -5,15 +5,35 @@ function showLoginLinkModal(userId, username) {
     document.getElementById('login-link-user-id').value = userId;
     document.getElementById('login-link-username').textContent = username;
     document.getElementById('login-link-expires').value = '24';
+    document.getElementById('login-link-expires-custom').value = '';
+    document.getElementById('login-link-expires-custom-row').style.display = 'none';
     document.getElementById('login-link-result').style.display = 'none';
     document.getElementById('login-link-url').value = '';
     document.getElementById('login-link-gen-btn').style.display = '';
     document.getElementById('login-link-create-modal').classList.remove('hidden');
 }
 
+function toggleLoginLinkExpiresCustom() {
+    var sel = document.getElementById('login-link-expires');
+    var row = document.getElementById('login-link-expires-custom-row');
+    row.style.display = (sel.value === 'other') ? 'flex' : 'none';
+}
+
 async function createLoginLink() {
     var userId = document.getElementById('login-link-user-id').value;
-    var hours = parseInt(document.getElementById('login-link-expires').value);
+    var expiresSel = document.getElementById('login-link-expires').value;
+    var hours;
+    if (expiresSel === 'other') {
+        var daysRaw = document.getElementById('login-link-expires-custom').value.trim();
+        var days = Number(daysRaw);
+        if (!daysRaw || !Number.isInteger(days) || days < 1 || days > 30) {
+            alert('请输入 1 ~ 30 之间的整数天数');
+            return;
+        }
+        hours = days * 24;
+    } else {
+        hours = parseInt(expiresSel);
+    }
     try {
         var response = await fetch(API_BASE + '/users/' + userId + '/login-links', {
             credentials: 'include',

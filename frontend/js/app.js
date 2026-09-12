@@ -902,6 +902,7 @@ function checkAgreementStatus() {
 }
 
 function showAgreementModal() {
+    hideBootSplash();
     const modal = document.getElementById('agreement-modal');
     if (modal) {
         modal.classList.remove('hidden');
@@ -941,12 +942,19 @@ async function declineAgreement() {
     handleLogout();
 }
 
+function hideBootSplash() {
+    var s = document.getElementById('boot-splash');
+    if (s) s.style.display = 'none';
+}
+
 function showLoginPage() {
+    hideBootSplash();
     document.getElementById('login-page').classList.remove('hidden');
     document.getElementById('main-page').classList.add('hidden');
 }
 
 function showMainPage() {
+    hideBootSplash();
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('main-page').classList.remove('hidden');
     document.getElementById('current-user').textContent = currentUser.username;

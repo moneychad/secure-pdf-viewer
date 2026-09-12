@@ -1770,7 +1770,6 @@ tr:hover {
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    height: 100vh;
     overflow: hidden;
 }
 
@@ -2196,3 +2195,32 @@ body:not(.is-admin) .admin-only {
     background: #fdecea;
     color: #e74c3c;
 }
+
+/* ==================== 启动加载页 (v7.55) ==================== */
+#boot-splash {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+.boot-splash-inner { text-align: center; }
+.boot-splash-brand {
+    color: #fff;
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+}
+.boot-splash-spinner {
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    animation: bootspin 0.8s linear infinite;
+    margin: 0 auto;
+}
+@keyframes bootspin { to { transform: rotate(360deg); } }
