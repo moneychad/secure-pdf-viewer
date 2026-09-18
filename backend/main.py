@@ -678,6 +678,22 @@ import time
 login_attempts = defaultdict(list)
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_MINUTES = 15
+# 外层反向代理（110.19）。107/108 本机 Nginx 会把 X-Real-IP 覆盖成直接来源；
+# 当直接来源是外层代理时，真实客户端在 X-Forwarded-For 第一段。
+OUTER_PROXY_IPS = {"192.168.110.19"}
+
+def get_client_ip(request) -> str:
+    """返回用于限流/审计的真实客户端IP。
+    - 普通情况：本机 Nginx 已把 X-Real-IP 设为直接客户端，直接用。
+    - 外网链路：客户端 -> 110.19 -> 107；107 的 X-Real-IP 被覆盖成 110.19，此时取 XFF 第一段。
+    - 不信任内网直连客户端伪造的 XFF：只有 X-Real-IP 是外层代理时才采用 XFF。
+    """
+    x_real = (request.headers.get("X-Real-IP") or "").strip()
+    xff = (request.headers.get("X-Forwarded-For") or "").strip()
+    peer = request.client.host if request.client else ""
+    if x_real in OUTER_PROXY_IPS and xff:
+        return xff.split(",")[0].strip() or x_real or peer or "unknown"
+    return x_real or peer or "unknown"
 
 def check_login_rate_limit(ip: str) -> tuple:
     """检查登录频率限制，返回 (是否允许, 剩余尝试次数, 锁定剩余秒数)"""
@@ -760,8 +776,8 @@ async def log_agreement_action(request: Request, token_data: dict = Depends(veri
 
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
-    # 检查登录频率限制（外网经外层Nginx时必须用 X-Real-IP 区分真实客户端，否则所有外网用户共用110.19限流桶）
-    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    # 检查登录频率限制（按真实客户端IP隔离；外网经110.19时由get_client_ip取XFF首段）
+    client_ip = get_client_ip(request)
     allowed, remaining, lockout_seconds = check_login_rate_limit(client_ip)
     
     if not allowed:
@@ -2072,7 +2088,7 @@ async def use_login_link(data: LoginLinkUse, request: Request):
                 "expires_at": link["expires_at"]}
 
     # 第二阶段：校验凭据（含登录频率限制防爆破）
-    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    client_ip = get_client_ip(request)
     allowed, remaining, lockout_seconds = check_login_rate_limit(client_ip)
     if not allowed:
         conn.close()

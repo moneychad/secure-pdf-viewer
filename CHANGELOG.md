@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v7.70 - 2026-09-18
+
+### 修复
+- **真实客户端IP解析补强**: 107/108 本机 Nginx 会把 `X-Real-IP` 覆盖成直接来源；外网链路下该值变为外层代理 110.19。新增 `get_client_ip()`：仅当 `X-Real-IP` 是外层代理 110.19 时才取 `X-Forwarded-For` 第一段，否则使用 `X-Real-IP`，避免内网直连伪造 XFF 绕过限流
+- `/api/login` 与 `/api/login-link` 的限流/审计统一改用 `get_client_ip()`
+
+### 部署/运维
+- 前端版本号：`v=7.70`（仅版本号递进；无页面样式变更）
+- 依赖外层 Nginx 传递 `X-Real-IP`/`X-Forwarded-For`（110.19 已确认携带）
+
+---
+
 ## v7.69 - 2026-09-18
 
 ### 修复
