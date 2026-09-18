@@ -30,12 +30,45 @@ body {
 }
 
 /* 登录页面 */
+/* 背景自适应策略(v7.68)：任何分辨率都 contain 完整显示；比例不一致时用同图模糊填充留白，不裁切图片。
+   分层顺序：底色 -> ::before模糊填充层 -> ::after清晰完整图 -> 内容；避免模糊层盖住清晰图。 */
 #login-page {
+    position: relative;
+    overflow: hidden;
     display: flex;
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background-color: #10213f;
+}
+/* 模糊填充层：同图放大模糊铺满，填补contain留下的空白 */
+#login-page::before {
+    content: '';
+    position: absolute;
+    inset: -40px;
+    background-image: url('/assets/login-bg-16x9-v2.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    filter: blur(35px) brightness(0.7);
+    z-index: 0;
+    pointer-events: none;
+}
+/* 清晰完整图：必须放在模糊层之上，否则用户看到的全是模糊背景 */
+#login-page::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url('/assets/login-bg-16x9-v2.jpg');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    z-index: 0;
+    pointer-events: none;
+}
+#login-page > * {
+    position: relative;
+    z-index: 1;
 }
 
 .login-container {
@@ -2200,11 +2233,41 @@ body:not(.is-admin) .admin-only {
 #boot-splash {
     position: fixed;
     inset: 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    overflow: hidden;
+    background-color: #10213f;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 9999;
+}
+/* 模糊填充层（同登录页策略 v7.68） */
+#boot-splash::before {
+    content: '';
+    position: absolute;
+    inset: -40px;
+    background-image: url('/assets/login-bg-16x9-v2.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    filter: blur(35px) brightness(0.7);
+    z-index: 0;
+    pointer-events: none;
+}
+/* 清晰完整图（同登录页策略 v7.68） */
+#boot-splash::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url('/assets/login-bg-16x9-v2.jpg');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    z-index: 0;
+    pointer-events: none;
+}
+#boot-splash > * {
+    position: relative;
+    z-index: 1;
 }
 .boot-splash-inner { text-align: center; }
 .boot-splash-brand {
