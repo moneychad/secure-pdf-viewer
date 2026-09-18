@@ -760,8 +760,8 @@ async def log_agreement_action(request: Request, token_data: dict = Depends(veri
 
 @app.post("/api/login")
 async def login(user: UserLogin, request: Request):
-    # 检查登录频率限制
-    client_ip = request.client.host
+    # 检查登录频率限制（外网经外层Nginx时必须用 X-Real-IP 区分真实客户端，否则所有外网用户共用110.19限流桶）
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
     allowed, remaining, lockout_seconds = check_login_rate_limit(client_ip)
     
     if not allowed:
@@ -793,7 +793,7 @@ async def login(user: UserLogin, request: Request):
     c.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_data["id"],))
     
     # 记录审计日志（在关闭连接前）
-    log_audit(conn, user_data["id"], user_data["username"], "LOGIN", "user", user_data["id"], user_data["username"], None, request.client.host)
+    log_audit(conn, user_data["id"], user_data["username"], "LOGIN", "user", user_data["id"], user_data["username"], None, client_ip)
     conn.commit()
     conn.close()
     
